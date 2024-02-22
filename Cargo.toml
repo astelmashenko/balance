@@ -1,0 +1,31 @@
+[package]
+name = "balance"
+edition = "2021"
+rust-version = "1.59"
+version = "0.1.0"
+
+[dependencies]
+cortex-m = "0.7.7"
+cortex-m-rt = "0.7.3"
+panic-itm = "0.4.2"
+embedded-hal = "0.2.7"
+nb = "1"
+# stm32f1 = "0.15.1"
+
+[dev-dependencies]
+panic-halt = "0.2.0"
+
+[dependencies.stm32f1xx-hal]
+version = "0.10.0"
+features = ["rt", "stm32f103", "medium"]
+
+[dependencies.stm32f1]
+stm32f1 = "0.15.1"
+features = ["stm32f103"]
+
+
+[features]
+device-selected = []
+doc = []
+# rt = ["stm32f1/rt"]
+stm32f103 = ["stm32f1/stm32f103", "device-selected"]

@@ -1,0 +1,16 @@
+[package]
+authors = [
+    "Andrii Stelmashenko <andrey.stelmashenko@gmail.com>",
+]
+edition = "2018"
+name = "aux5"
+version = "0.1.0"
+
+[dependencies]
+cortex-m = "0.7.2"
+cortex-m-rt = "0.6.14"
+panic-itm = "0.4.2"
+
+[dependencies.stm32f1]
+version = "0.15.1"
+features = ["stm32f103"]
