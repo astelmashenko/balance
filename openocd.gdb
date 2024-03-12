@@ -15,10 +15,10 @@ set style sources off
 
 # Initialize monitoring so iprintln! macro output
 # is sent from the itm port to itm.txt
-monitor tpiu config internal itm.txt uart off 8000000
+# monitor tpiu config internal itm.txt uart off 8000000
 
 # Turn on the itm port
-monitor itm port 0 on
+# monitor itm port 0 on
 
 # Set a breakpoint at main, aka entry
 break main
