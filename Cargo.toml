@@ -14,6 +14,9 @@ nb = "1"
 ssd1306 = "0.8.4"
 embedded-graphics = "0.8.0"
 panic-halt = "0.2.0"
+mpu6050 = "0.1.6"
+heapless = "0.8.0"
+# embedded-alloc = "0.5.1"
 
 # [dev-dependencies]
 

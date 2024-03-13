@@ -21,7 +21,7 @@ set style sources off
 # monitor itm port 0 on
 
 # Set a breakpoint at main, aka entry
-break main
+# break main
 
 # Set a breakpoint at DefaultHandler
 break DefaultHandler
