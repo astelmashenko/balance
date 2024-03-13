@@ -12,9 +12,9 @@
       "servertype": "openocd",
       "cwd": "${workspaceRoot}",
       "gdbPath": "gdb-multiarch",
-      "preLaunchTask": "rust: cargo build",
+      "preLaunchTask": "rust: cargo build debug",
       "runToEntryPoint": "main",
-      "executable": "target/thumbv7m-none-eabi/release/balance",
+      "executable": "target/thumbv7m-none-eabi/debug/balance",
       "device": "STM32F103C8T6",
       "configFiles": [
         "interface/stlink.cfg",
