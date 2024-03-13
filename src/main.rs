@@ -5,10 +5,12 @@
 use core::fmt::Write;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
+use mpu6050::*;
 use nb::block;
 use panic_halt as _;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{i2c, pac, prelude::*, timer::Timer};
+
 
 
 #[entry]
@@ -32,11 +34,11 @@ fn main() -> ! {
     timer.start(1.Hz()).unwrap();
 
     // Acquire the GPIOC peripheral
-    // let mut gpioc = dp.GPIOC.split();
+    let mut gpioc = dp.GPIOC.split();
 
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
-    // let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
     // let mut led2 = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
     // Configure the syst timer to trigger an update every second
 
@@ -66,31 +68,45 @@ fn main() -> ! {
         1000,
         1000,
     );
+
+    let bus = shared_bus::BusManagerSimple::new(i2c);
+
     // let i2c = i2c::I2c::i2c2(dp.I2C2, i2c2_pins, 100.kHz(), &mut rcc);
-    let interface = I2CDisplayInterface::new(i2c);
+    let interface = I2CDisplayInterface::new(bus.acquire_i2c());
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_terminal_mode();
         // .into_buffered_graphics_mode();
     display.init().unwrap();
     display.clear().unwrap();
 
-    let mut i = 0;
+    let mut mpu = Mpu6050::new(bus.acquire_i2c());
+    let mut delay = dp.TIM2.delay_us(&clocks);
+    mpu.init(&mut delay).unwrap();
 
     // Wait for the timer to trigger an update and change the state of the LED
     #[allow(clippy::empty_loop)]
     loop {
         block!(timer.wait()).unwrap();
-        i += 1;
-        let mut txt = heapless::String::<16>::new();
-        write!(&mut txt, "Hello: {}", i).unwrap();
-        // led.set_high();
+        led.set_high();
 
-        display.set_position(0, 0).unwrap();
+        let temp = mpu.get_temp().unwrap();
+        // let angles = mpu.get_acc_angles().unwrap();
+
+        let mut txt = heapless::String::<16>::new();
+        write!(&mut txt, "Temp: {}", temp).unwrap();
+        display.set_position(0, 1).unwrap();
         display.write_str(&txt).unwrap();
 
+
+        // let gyro = mpu.get_gyro().unwrap();
+        // let mut angle_x = heapless::String::<16>::new();
+        // write!(&mut angle_x, "Angle X: {}", gyro[0]).unwrap();
+        // display.set_position(0, 2).unwrap();
+        // display.write_str(&angle_x).unwrap();
+
         // //
-        // block!(timer.wait()).unwrap();
-        // // led.set_high();
+        block!(timer.wait()).unwrap();
+        led.set_low();
     }
 }
 
