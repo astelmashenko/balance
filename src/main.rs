@@ -49,11 +49,6 @@ fn main() -> ! {
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
 
-    // let i2c2_pins = (
-    //     gpiob.pb6.into_alternate_open_drain(&mut gpiob.crh),
-    //     gpiob.pb7.into_alternate_open_drain(&mut gpiob.crh),
-    // );
-
     let i2c = i2c::BlockingI2c::i2c1(
         dp.I2C1,
         (scl, sda),
@@ -71,7 +66,6 @@ fn main() -> ! {
 
     let bus = shared_bus::BusManagerSimple::new(i2c);
 
-    // let i2c = i2c::I2c::i2c2(dp.I2C2, i2c2_pins, 100.kHz(), &mut rcc);
     let interface = I2CDisplayInterface::new(bus.acquire_i2c());
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_terminal_mode();
@@ -89,26 +83,47 @@ fn main() -> ! {
         block!(timer.wait()).unwrap();
         led.set_high();
 
-        let temp = mpu.get_temp().unwrap();
-        // let angles = mpu.get_acc_angles().unwrap();
 
         let mut txt = heapless::String::<16>::new();
-        write!(&mut txt, "Temp: {}", temp).unwrap();
-        display.set_position(0, 1).unwrap();
+        let mut angle_x = heapless::String::<16>::new();
+        let mut angle_y = heapless::String::<16>::new();
+        let mut angle_z = heapless::String::<16>::new();
+
+        let temp = mpu.get_temp().unwrap();
+        write!(&mut txt, "Temp: {:.2}", temp).unwrap();
+        display.set_position(0, 0).unwrap();
         display.write_str(&txt).unwrap();
+     
+        // gyro: x, y, z
+        let gyro = mpu.get_gyro().unwrap();
 
+        write!(&mut angle_x, "Angle X: {:.2}", gyro.x).unwrap();
+        display.set_position(0, 1).unwrap();
+        display.write_str(&angle_x).unwrap();
 
-        // let gyro = mpu.get_gyro().unwrap();
-        // let mut angle_x = heapless::String::<16>::new();
-        // write!(&mut angle_x, "Angle X: {}", gyro[0]).unwrap();
-        // display.set_position(0, 2).unwrap();
-        // display.write_str(&angle_x).unwrap();
+        write!(&mut angle_y, "Angle Y: {:.2}", gyro.y).unwrap();
+        display.set_position(0, 2).unwrap();
+        display.write_str(&angle_y).unwrap();
 
-        // //
+        write!(&mut angle_z, "Angle Z: {:.2}", gyro.z).unwrap();
+        display.set_position(0, 3).unwrap();
+        display.write_str(&angle_z).unwrap();
+
+        //
         block!(timer.wait()).unwrap();
         led.set_low();
     }
 }
+
+// fn show(
+//     display: &Ssd1306<I2CInterface<shared_bus::I2cProxy<'_, shared_bus::NullMutex<i2c::BlockingI2c<pac::I2C1, (stm32f1xx_hal::gpio::Pin<'B', 8, stm32f1xx_hal::gpio::Alternate<stm32f1xx_hal::gpio::OpenDrain>>, stm32f1xx_hal::gpio::Pin<'B', 9, stm32f1xx_hal::gpio::Alternate<stm32f1xx_hal::gpio::OpenDrain>>)>>>>, DisplaySize128x64, ssd1306::mode::TerminalMode>,
+//     pos: u8,
+//     txt: &mut heapless::String<16>,
+//     temp: f32) {
+//     write!(txt, "Temp: {:.2}", temp).unwrap();
+//     display.set_position(0, 0).unwrap();
+//     display.write_str(&txt).unwrap();
+// }
 
 #[exception]
 unsafe fn HardFault(ef: &ExceptionFrame) -> ! {
