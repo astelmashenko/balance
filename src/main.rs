@@ -6,12 +6,9 @@ use core::fmt::Write;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
 use mpu6050::*;
-use nb::block;
 use panic_halt as _;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{i2c, pac, prelude::*, timer::Timer};
-
-
 
 #[entry]
 fn main() -> ! {
@@ -31,7 +28,7 @@ fn main() -> ! {
 
     // Configure the syst timer to trigger an update every second
     let mut timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    timer.start(1.Hz()).unwrap();
+    timer.start(1.MHz()).unwrap();
 
     // Acquire the GPIOC peripheral
     let mut gpioc = dp.GPIOC.split();
@@ -53,7 +50,6 @@ fn main() -> ! {
         dp.I2C1,
         (scl, sda),
         &mut afio.mapr,
-        // 100.kHz(),
         i2c::Mode::Standard {
             frequency: 100_000.Hz(),
         },
@@ -67,9 +63,9 @@ fn main() -> ! {
     let bus = shared_bus::BusManagerSimple::new(i2c);
 
     let interface = I2CDisplayInterface::new(bus.acquire_i2c());
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_terminal_mode();
-        // .into_buffered_graphics_mode();
+    let mut display =
+        Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_terminal_mode();
+    // .into_buffered_graphics_mode();
     display.init().unwrap();
     display.clear().unwrap();
 
@@ -77,12 +73,11 @@ fn main() -> ! {
     let mut delay = dp.TIM2.delay_us(&clocks);
     mpu.init(&mut delay).unwrap();
 
-    // Wait for the timer to trigger an update and change the state of the LED
+    // :
     #[allow(clippy::empty_loop)]
     loop {
-        block!(timer.wait()).unwrap();
+        delay.delay_ms(2000_u32);
         led.set_high();
-
 
         let mut txt = heapless::String::<16>::new();
         let mut angle_x = heapless::String::<16>::new();
@@ -93,7 +88,7 @@ fn main() -> ! {
         write!(&mut txt, "Temp: {:.2}", temp).unwrap();
         display.set_position(0, 0).unwrap();
         display.write_str(&txt).unwrap();
-     
+
         // gyro: x, y, z
         let gyro = mpu.get_gyro().unwrap();
 
@@ -110,7 +105,7 @@ fn main() -> ! {
         display.write_str(&angle_z).unwrap();
 
         //
-        block!(timer.wait()).unwrap();
+        delay.delay_ms(2000_u32);
         led.set_low();
     }
 }
