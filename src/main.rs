@@ -18,7 +18,6 @@ use stm32f1xx_hal::{
     prelude::*,
     timer::{CounterMs, Event},
 };
-use embedded_hal_bus::i2c as i2c_bus;
 
 type LedPin = gpio::PC13<Output<PushPull>>;
 
