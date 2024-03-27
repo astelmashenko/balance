@@ -12,7 +12,7 @@
       "servertype": "openocd",
       "cwd": "${workspaceRoot}",
       "gdbPath": "gdb-multiarch",
-      "preLaunchTask": "rust: cargo build",
+      // "preLaunchTask": "rust: cargo build",
       "runToEntryPoint": "main",
       "executable": "target/thumbv7m-none-eabi/release/balance",
       "device": "STM32F103C8T6",
