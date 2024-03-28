@@ -21,23 +21,10 @@ heapless = "0.8.0"
 shared-bus-rtic = "0.2.2"
 # embedded-hal-bus = "0.1.0"
 
-# [dev-dependencies]
-
 [dependencies.stm32f1xx-hal]
 version = "0.10.0"
 features = ["rt", "stm32f103", "medium"]
 
-# [dependencies.stm32f1]
-# stm32f1 = "0.15.1"
-# features = ["stm32f103"]
-#
-
-# [features]
-# device-selected = []
-# doc = []
-# rt = ["stm32f1/rt"]
-# stm32f103 = ["stm32f1/stm32f103", "device-selected"]
-#
 # this lets you use `cargo fix`!
 [[bin]]
 name = "balance"
@@ -45,6 +32,7 @@ test = false
 bench = false
 
 [profile.release]
+build-override.opt-level = 1
 codegen-units = 1 # better optimizations
 debug = true      # symbols are nice and they don't increase the size on Flash
 lto = true        # better optimizations
