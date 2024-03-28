@@ -1,27 +1,27 @@
 {
 	"version": "2.0.0",
 	"tasks": [
-		{
-			"type": "cargo",
-			"command": "build",
-			"args": [
-				"--release"
-			],
-			"problemMatcher": [
-				"$rustc"
-			],
-			"group": "build",
-			"label": "rust: cargo build"
-		},
-		{
-			"type": "cargo",
-			"command": "build",
-			"args": [],
-			"problemMatcher": [
-				"$rustc"
-			],
-			"group": "build",
-			"label": "rust: cargo build debug"
-		}
+		// {
+		// 	"type": "cargo",
+		// 	"command": "build",
+		// 	"args": [
+		// 		"--release"
+		// 	],
+		// 	"problemMatcher": [
+		// 		"$rustc"
+		// 	],
+		// 	"group": "build",
+		// 	"label": "MyRust: cargo build"
+		// },
+		// {
+		// 	"type": "cargo",
+		// 	"command": "build",
+		// 	"args": [],
+		// 	"problemMatcher": [
+		// 		"$rustc"
+		// 	],
+		// 	"group": "build",
+		// 	"label": "Rust: cargo build debug"
+		// },
 	]
 }

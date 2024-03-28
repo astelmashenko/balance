@@ -128,32 +128,33 @@ fn TIM2() {
 
         let mut txt = heapless::String::<16>::new();
         let mut angle_x = heapless::String::<16>::new();
-        let mut angle_y = heapless::String::<16>::new();
-        let mut angle_z = heapless::String::<16>::new();
+        // let mut angle_y = heapless::String::<16>::new();
+        // let mut angle_z = heapless::String::<16>::new();
 
-        let mut mpu = G_MPU.borrow(cs).borrow_mut();
+        let mut mpu_ref = G_MPU.borrow(cs).borrow_mut();
         let mut display = G_DISP.borrow(cs).borrow_mut();
+        let mpu = mpu_ref.as_mut().unwrap();
 
-        let temp = mpu.as_mut().unwrap().get_temp().unwrap();
+        let temp = mpu.get_temp().unwrap();
         write!(&mut txt, "Temp: {:.2}", temp).unwrap();
         let d = display.as_mut().unwrap();
         d.set_position(0, 0).unwrap();
         d.write_str(&txt).unwrap();
 
         // gyro: x, y, z
-        let gyro = mpu.as_mut().unwrap().get_gyro().unwrap();
+        let gyro = mpu.get_acc_angles().unwrap();
 
         write!(&mut angle_x, "Angle X: {:.2}", gyro.x).unwrap();
         d.set_position(0, 1).unwrap();
         d.write_str(&angle_x).unwrap();
 
-        write!(&mut angle_y, "Angle Y: {:.2}", gyro.y).unwrap();
-        d.set_position(0, 2).unwrap();
-        d.write_str(&angle_y).unwrap();
+        // write!(&mut angle_y, "Angle Y: {:.2}", gyro.y).unwrap();
+        // d.set_position(0, 2).unwrap();
+        // d.write_str(&angle_y).unwrap();
 
-        write!(&mut angle_z, "Angle Z: {:.2}", gyro.z).unwrap();
-        d.set_position(0, 3).unwrap();
-        d.write_str(&angle_z).unwrap();
+        // write!(&mut angle_z, "Angle Z: {:.2}", gyro.z).unwrap();
+        // d.set_position(0, 3).unwrap();
+        // d.write_str(&angle_z).unwrap();
 
         // Obtain access to Global Timer Peripheral and Clear Interrupt Pending Flag
         let mut timer = G_TIM.borrow(cs).borrow_mut();
