@@ -10,19 +10,26 @@ use cortex_m::interrupt::Mutex;
 
 use mpu6050::*;
 use panic_halt as _;
-use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306, mode::TerminalMode};
+use shared_bus_rtic::SharedBus;
+use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{
-    gpio::{self, Output, PushPull, Pin, Alternate, OpenDrain},
+    gpio::{self, Alternate, OpenDrain, Output, Pin, PushPull},
     i2c,
     pac::{self, interrupt, TIM2},
     prelude::*,
     timer::{CounterMs, Event},
 };
-use shared_bus_rtic::SharedBus;
 
 type LedPin = gpio::PC13<Output<PushPull>>;
-type BlockingI2cPB89 = i2c::BlockingI2c<pac::I2C1, (Pin<'B', 8, Alternate<OpenDrain>>, Pin<'B', 9, Alternate<OpenDrain>>)>;
-type I2cDisplay = Ssd1306<I2CInterface<SharedBus<BlockingI2cPB89>>, DisplaySize128x64, TerminalMode>;
+type BlockingI2cPB89 = i2c::BlockingI2c<
+    pac::I2C1,
+    (
+        Pin<'B', 8, Alternate<OpenDrain>>,
+        Pin<'B', 9, Alternate<OpenDrain>>,
+    ),
+>;
+type I2cDisplay =
+    Ssd1306<I2CInterface<SharedBus<BlockingI2cPB89>>, DisplaySize128x64, TerminalMode>;
 type I2cMpu6050 = Mpu6050<SharedBus<BlockingI2cPB89>>;
 
 // Create a Global Variable for the Timer Peripheral that I'm going to pass around.
@@ -66,7 +73,8 @@ fn main() -> ! {
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
-    // let mut led2 = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
+    let mut led2 = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
+    led2.set_high();
 
     let mut gpiob = dp.GPIOB.split();
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
@@ -89,14 +97,14 @@ fn main() -> ! {
 
     let i2c_sbus = shared_bus_rtic::new!(i2c_2, BlockingI2cPB89);
     let interface = I2CDisplayInterface::new(i2c_sbus.acquire());
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_terminal_mode();
+    let mut display =
+        Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_terminal_mode();
     display.init().unwrap();
     display.clear().unwrap();
 
     let mut mpu = Mpu6050::new(i2c_sbus.acquire());
     let mut delay = dp.TIM1.delay_ms(&clocks);
     mpu.init(&mut delay).unwrap();
-
 
     cortex_m::interrupt::free(|cs| {
         // G_I2C2.borrow(cs).replace(Some(i2c_2));

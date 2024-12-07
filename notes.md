@@ -1,3 +1,12 @@
+# cargo run
+
+Check `.cargo/config.toml` for details of what command will be run.
+
+# Debugger
+
+To configure debugger make it pretty and usable check link https://github.com/cyrus-and/gdb-dashboard#gdb-dashboard
+
+
 # Allocator
 
 ```rust
