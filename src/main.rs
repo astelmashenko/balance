@@ -10,19 +10,26 @@ use cortex_m::interrupt::Mutex;
 
 use mpu6050::*;
 use panic_halt as _;
-use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306, mode::TerminalMode};
+use shared_bus_rtic::SharedBus;
+use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{
-    gpio::{self, Output, PushPull, Pin, Alternate, OpenDrain},
+    gpio::{self, Alternate, OpenDrain, Output, Pin, PushPull},
     i2c,
     pac::{self, interrupt, TIM2},
     prelude::*,
     timer::{CounterMs, Event},
 };
-use shared_bus_rtic::SharedBus;
 
 type LedPin = gpio::PC13<Output<PushPull>>;
-type BlockingI2cPB89 = i2c::BlockingI2c<pac::I2C1, (Pin<'B', 8, Alternate<OpenDrain>>, Pin<'B', 9, Alternate<OpenDrain>>)>;
-type I2cDisplay = Ssd1306<I2CInterface<SharedBus<BlockingI2cPB89>>, DisplaySize128x64, TerminalMode>;
+type BlockingI2cPB89 = i2c::BlockingI2c<
+    pac::I2C1,
+    (
+        Pin<'B', 8, Alternate<OpenDrain>>,
+        Pin<'B', 9, Alternate<OpenDrain>>,
+    ),
+>;
+type I2cDisplay =
+    Ssd1306<I2CInterface<SharedBus<BlockingI2cPB89>>, DisplaySize128x64, TerminalMode>;
 type I2cMpu6050 = Mpu6050<SharedBus<BlockingI2cPB89>>;
 
 // Create a Global Variable for the Timer Peripheral that I'm going to pass around.
@@ -40,6 +47,7 @@ fn main() -> ! {
     // Get access to the device specific peripherals from the peripheral access crate
     let dp = pac::Peripherals::take().unwrap();
 
+    // ======================= init interrupts of timer ==============================//
     // Take ownership over the raw flash and rcc devices and convert them into the corresponding HAL structs
     let mut flash = dp.FLASH.constrain();
     let rcc = dp.RCC.constrain();
@@ -60,6 +68,7 @@ fn main() -> ! {
         cortex_m::peripheral::NVIC::unmask(interrupt::TIM2);
     }
 
+    // ======================= init led pin ========================================//
     // Acquire the GPIOC peripheral
     let mut gpioc = dp.GPIOC.split();
 
@@ -68,6 +77,7 @@ fn main() -> ! {
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
     // let mut led2 = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
 
+    // ======================= init i2c over pb8/pb9 as scl/sda ====================//
     let mut gpiob = dp.GPIOB.split();
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
@@ -87,17 +97,22 @@ fn main() -> ! {
         1000,
     );
 
+    // ======================= init i2c over pb8/pb9 as scl/sda ====================//
     let i2c_sbus = shared_bus_rtic::new!(i2c_2, BlockingI2cPB89);
     let interface = I2CDisplayInterface::new(i2c_sbus.acquire());
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_terminal_mode();
+
+    let mut display =
+        Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_terminal_mode();
     display.init().unwrap();
     display.clear().unwrap();
 
+ 
+    // ======================= init mpu6050 over i2c ====================//
     let mut mpu = Mpu6050::new(i2c_sbus.acquire());
     let mut delay = dp.TIM1.delay_ms(&clocks);
     mpu.init(&mut delay).unwrap();
 
-
+    // ======================= init global var to use inside interrupt handler ====================//
     cortex_m::interrupt::free(|cs| {
         // G_I2C2.borrow(cs).replace(Some(i2c_2));
         G_DISP.borrow(cs).replace(Some(display));
@@ -120,7 +135,7 @@ fn TIM2() {
     // 1) Toggle the LED
     // 2) Clear Timer Pending Interrupt
 
-    // Start a Critical Section
+    // Start a Critical Section to work with global vars
     cortex_m::interrupt::free(|cs| {
         // Obtain Access to Delay Global Data and Adjust Delay
         let mut led = G_LED.borrow(cs).borrow_mut();
