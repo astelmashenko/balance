@@ -17,7 +17,7 @@ use stm32f1xx_hal::{
     i2c,
     pac::{self, interrupt, TIM2},
     prelude::*,
-    timer::{CounterMs, Event},
+    timer::{pwm, Channel, CounterMs, Event, Tim2NoRemap, Tim3NoRemap, Timer, Timer2, Timer3},
 };
 
 type LedPin = gpio::PC13<Output<PushPull>>;
@@ -51,6 +51,7 @@ fn main() -> ! {
     // Take ownership over the raw flash and rcc devices and convert them into the corresponding HAL structs
     let mut flash = dp.FLASH.constrain();
     let rcc = dp.RCC.constrain();
+    let mut afio = dp.AFIO.constrain();
 
     // Freeze the configuration of all the clocks in the system and store the frozen frequencies
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
@@ -75,6 +76,26 @@ fn main() -> ! {
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+
+    // ======================= init led pin ========================================//
+    let mut gpioa = dp.GPIOA.split();
+    let pina_pwm = gpioa.pa6.into_alternate_push_pull(&mut gpioa.crl);
+
+    // let pwm3 = dp
+    //     .TIM3
+    //     .pwm_hz::<Tim3NoRemap, _, _>(pina_pwm, &mut afio.mapr, 100.Hz(), &clocks);
+    // pwm3.
+    // Timer::.pwm_hz();
+    let mut pwm3 = Timer3::new(dp.TIM3, &clocks).pwm_hz::<Tim3NoRemap, _, _>(
+        pina_pwm,
+        &mut afio.mapr,
+        100.Hz(),
+    );
+    pwm3.set_duty(Channel::C1, pwm3.get_duty(Channel::C1) / 2);
+    pwm3.enable(Channel::C1);
+
+    // timer.pwm_hz(gpioa0, &mut afio.mapr, 100.Hz());
+    // let pwm1 = Timer2::pwm_hz::<Tim2NoRemap, _, _>((gpioa0), &mut afio.mapr, 100.Hz(), &clocks);
     // let mut led2 = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
 
     // ======================= init i2c over pb8/pb9 as scl/sda ====================//
@@ -82,7 +103,6 @@ fn main() -> ! {
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
 
-    let mut afio = dp.AFIO.constrain();
     let i2c_2 = i2c::BlockingI2c::i2c1(
         dp.I2C1,
         (scl, sda),
@@ -106,7 +126,6 @@ fn main() -> ! {
     display.init().unwrap();
     display.clear().unwrap();
 
- 
     // ======================= init mpu6050 over i2c ====================//
     let mut mpu = Mpu6050::new(i2c_sbus.acquire());
     let mut delay = dp.TIM1.delay_ms(&clocks);
