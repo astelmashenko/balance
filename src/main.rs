@@ -17,7 +17,7 @@ use stm32f1xx_hal::{
     i2c,
     pac::{self, interrupt, TIM2},
     prelude::*,
-    timer::{pwm, Channel, CounterMs, Event, Tim2NoRemap, Tim3NoRemap, Timer, Timer2, Timer3},
+    timer::{Channel, CounterMs, Event, Tim3NoRemap, Timer3},
 };
 
 type LedPin = gpio::PC13<Output<PushPull>>;
@@ -58,7 +58,8 @@ fn main() -> ! {
 
     // Configure the syst timer to trigger an update every second
     // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    let mut timer = dp.TIM2.counter_ms(&clocks);
+    let t2 = dp.TIM2;
+    let mut timer = t2.counter_ms(&clocks);
     timer.start(500.millis()).unwrap();
 
     // Set up to generate interrupt when timer expires
@@ -80,18 +81,22 @@ fn main() -> ! {
     // ======================= init led pin ========================================//
     let mut gpioa = dp.GPIOA.split();
     let pina_pwm = gpioa.pa6.into_alternate_push_pull(&mut gpioa.crl);
+    // let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
 
     // let pwm3 = dp
     //     .TIM3
     //     .pwm_hz::<Tim3NoRemap, _, _>(pina_pwm, &mut afio.mapr, 100.Hz(), &clocks);
     // pwm3.
-    // Timer::.pwm_hz();
+    // Timer2::new(t2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(pina0_pwm, &mut afio.mapr, 100.Hz());
+
+    // Timer::tim3(dp.TIM3, &clocks).pwm_hz::<Tim3NoRemap, _, _>(pina_pwm, &mut afio.mapr, 100.Hz());
+
     let mut pwm3 = Timer3::new(dp.TIM3, &clocks).pwm_hz::<Tim3NoRemap, _, _>(
         pina_pwm,
         &mut afio.mapr,
         100.Hz(),
     );
-    pwm3.set_duty(Channel::C1, pwm3.get_duty(Channel::C1) / 2);
+    pwm3.set_duty(Channel::C1, pwm3.get_duty(Channel::C1));
     pwm3.enable(Channel::C1);
 
     // timer.pwm_hz(gpioa0, &mut afio.mapr, 100.Hz());
