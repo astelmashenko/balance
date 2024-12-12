@@ -6,6 +6,7 @@ use core::fmt::Write;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
 use core::cell::RefCell;
+use core::time::Duration;
 use cortex_m::interrupt::Mutex;
 
 use mpu6050::*;
@@ -46,6 +47,7 @@ fn main() -> ! {
     // let cp = cortex_m::Peripherals::take().unwrap();
     // Get access to the device specific peripherals from the peripheral access crate
     let dp = pac::Peripherals::take().unwrap();
+    let mut afio = dp.AFIO.constrain();
 
     // ======================= init interrupts of timer ==============================//
     // Take ownership over the raw flash and rcc devices and convert them into the corresponding HAL structs
@@ -103,6 +105,13 @@ fn main() -> ! {
     // let pwm1 = Timer2::pwm_hz::<Tim2NoRemap, _, _>((gpioa0), &mut afio.mapr, 100.Hz(), &clocks);
     // let mut led2 = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
 
+    // ======================= init pwm pin ========================================//
+    // let mut pwm_pin = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
+
+    // let pwm = dp.TIM2.pwm_hz(pwm_pin, &mut afio.mapr, 100.Hz(), &clocks);
+    // let max = pwm.get_max_duty();
+    // pwm.set_duty(max / 2);
+    //
     // ======================= init i2c over pb8/pb9 as scl/sda ====================//
     let mut gpiob = dp.GPIOB.split();
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
@@ -116,6 +125,7 @@ fn main() -> ! {
             frequency: 100_000.Hz(),
         },
         clocks,
+        // below are different timeouts
         1000,
         10,
         1000,
