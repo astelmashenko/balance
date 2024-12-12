@@ -6,7 +6,6 @@ use core::fmt::Write;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
 use core::cell::RefCell;
-use core::time::Duration;
 use cortex_m::interrupt::Mutex;
 
 use mpu6050::*;
@@ -16,9 +15,9 @@ use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{
     gpio::{self, Alternate, OpenDrain, Output, Pin, PushPull},
     i2c,
-    pac::{self, interrupt, TIM2},
+    pac::{self, interrupt, TIM3},
     prelude::*,
-    timer::{Channel, CounterMs, Event, Tim3NoRemap, Timer3},
+    timer::{Channel, CounterMs, Event, Tim2NoRemap, Timer2},
 };
 
 type LedPin = gpio::PC13<Output<PushPull>>;
@@ -34,7 +33,7 @@ type I2cDisplay =
 type I2cMpu6050 = Mpu6050<SharedBus<BlockingI2cPB89>>;
 
 // Create a Global Variable for the Timer Peripheral that I'm going to pass around.
-static G_TIM: Mutex<RefCell<Option<CounterMs<TIM2>>>> = Mutex::new(RefCell::new(None));
+static G_TIM: Mutex<RefCell<Option<CounterMs<TIM3>>>> = Mutex::new(RefCell::new(None));
 // Create a Global Variable for the LED GPIO Peripheral that I'm going to pass around.
 static G_LED: Mutex<RefCell<Option<LedPin>>> = Mutex::new(RefCell::new(None));
 
@@ -53,15 +52,14 @@ fn main() -> ! {
     // Take ownership over the raw flash and rcc devices and convert them into the corresponding HAL structs
     let mut flash = dp.FLASH.constrain();
     let rcc = dp.RCC.constrain();
-    let mut afio = dp.AFIO.constrain();
 
     // Freeze the configuration of all the clocks in the system and store the frozen frequencies
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
 
     // Configure the syst timer to trigger an update every second
     // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    let t2 = dp.TIM2;
-    let mut timer = t2.counter_ms(&clocks);
+    let dev_timer = dp.TIM3;
+    let mut timer = dev_timer.counter_ms(&clocks);
     timer.start(500.millis()).unwrap();
 
     // Set up to generate interrupt when timer expires
@@ -69,7 +67,7 @@ fn main() -> ! {
 
     // Enable the external interrupt in the NVIC for all peripherals by passing the interrupt numbers
     unsafe {
-        cortex_m::peripheral::NVIC::unmask(interrupt::TIM2);
+        cortex_m::peripheral::NVIC::unmask(interrupt::TIM3);
     }
 
     // ======================= init led pin ========================================//
@@ -80,38 +78,15 @@ fn main() -> ! {
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
-    // ======================= init led pin ========================================//
-    let mut gpioa = dp.GPIOA.split();
-    let pina_pwm = gpioa.pa6.into_alternate_push_pull(&mut gpioa.crl);
-    // let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
-
-    // let pwm3 = dp
-    //     .TIM3
-    //     .pwm_hz::<Tim3NoRemap, _, _>(pina_pwm, &mut afio.mapr, 100.Hz(), &clocks);
-    // pwm3.
-    // Timer2::new(t2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(pina0_pwm, &mut afio.mapr, 100.Hz());
-
-    // Timer::tim3(dp.TIM3, &clocks).pwm_hz::<Tim3NoRemap, _, _>(pina_pwm, &mut afio.mapr, 100.Hz());
-
-    let mut pwm3 = Timer3::new(dp.TIM3, &clocks).pwm_hz::<Tim3NoRemap, _, _>(
-        pina_pwm,
-        &mut afio.mapr,
-        100.Hz(),
-    );
-    pwm3.set_duty(Channel::C1, pwm3.get_duty(Channel::C1));
-    pwm3.enable(Channel::C1);
-
-    // timer.pwm_hz(gpioa0, &mut afio.mapr, 100.Hz());
-    // let pwm1 = Timer2::pwm_hz::<Tim2NoRemap, _, _>((gpioa0), &mut afio.mapr, 100.Hz(), &clocks);
-    // let mut led2 = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
-
     // ======================= init pwm pin ========================================//
-    // let mut pwm_pin = gpioc.pc14.into_push_pull_output(&mut gpioc.crh);
+    let mut gpioa = dp.GPIOA.split();
+    let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
 
-    // let pwm = dp.TIM2.pwm_hz(pwm_pin, &mut afio.mapr, 100.Hz(), &clocks);
-    // let max = pwm.get_max_duty();
-    // pwm.set_duty(max / 2);
-    //
+    let mut pwm2 = Timer2::new(dp.TIM2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(pina0_pwm, &mut afio.mapr, 100.Hz());
+    let max = pwm2.get_max_duty();
+    pwm2.set_duty(Channel::C1, max / 8);
+    pwm2.enable(Channel::C1);
+
     // ======================= init i2c over pb8/pb9 as scl/sda ====================//
     let mut gpiob = dp.GPIOB.split();
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
@@ -164,7 +139,7 @@ fn main() -> ! {
 }
 
 #[interrupt]
-fn TIM2() {
+fn TIM3() {
     // When Timer Interrupt Happens Two Things Need to be Done
     // 1) Toggle the LED
     // 2) Clear Timer Pending Interrupt
