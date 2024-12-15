@@ -82,9 +82,14 @@ fn main() -> ! {
     let mut gpioa = dp.GPIOA.split();
     let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
 
-    let mut pwm2 = Timer2::new(dp.TIM2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(pina0_pwm, &mut afio.mapr, 100.Hz());
+    let mut pwm2 = Timer2::new(dp.TIM2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(
+        pina0_pwm,
+        &mut afio.mapr,
+        20.kHz(),
+    );
+    let mut duty_div = 1;
     let max = pwm2.get_max_duty();
-    pwm2.set_duty(Channel::C1, max / 8);
+    pwm2.set_duty(Channel::C1, max / duty_div);
     pwm2.enable(Channel::C1);
 
     // ======================= init i2c over pb8/pb9 as scl/sda ====================//
@@ -116,6 +121,11 @@ fn main() -> ! {
     display.init().unwrap();
     display.clear().unwrap();
 
+    let mut txt = heapless::String::<16>::new();
+    display.set_position(0, 7).unwrap();
+    write!(&mut txt, "khz:{}; div:{}", 20, duty_div).unwrap();
+    display.write_str(&txt).unwrap();
+
     // ======================= init mpu6050 over i2c ====================//
     let mut mpu = Mpu6050::new(i2c_sbus.acquire());
     let mut delay = dp.TIM1.delay_ms(&clocks);
@@ -132,9 +142,11 @@ fn main() -> ! {
 
     #[allow(clippy::empty_loop)]
     loop {
+        pwm2.set_duty(Channel::C1, max / duty_div);
         // Go to sleep
-        cortex_m::asm::wfi();
-        // delay.delay_ms(2000_u32);
+        // cortex_m::asm::wfi();
+        delay.delay_ms(2000_u32);
+        duty_div *= 2;
     }
 }
 
