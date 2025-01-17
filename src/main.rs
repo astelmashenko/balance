@@ -78,8 +78,15 @@ fn main() -> ! {
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
-    // ======================= init pwm pin ========================================//
+    // ======================= init break/dir pin ========================================//
     let mut gpioa = dp.GPIOA.split();
+
+    let mut pa1_break = gpioa.pa1.into_push_pull_output(&mut gpioa.crl);
+    pa1_break.set_high();
+
+    let mut pa2_dir = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
+    pa2_dir.set_low();
+    // ======================= init pwm pin ========================================//
     let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
 
     let mut pwm2 = Timer2::new(dp.TIM2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(
@@ -87,9 +94,10 @@ fn main() -> ! {
         &mut afio.mapr,
         20.kHz(),
     );
-    let mut duty_div = 1;
+    // let mut duty_div = 32;
     let max = pwm2.get_max_duty();
-    pwm2.set_duty(Channel::C1, max / duty_div);
+    let mut duty = 370;
+    pwm2.set_duty(Channel::C1, duty); // / duty_div
     pwm2.enable(Channel::C1);
 
     // ======================= init i2c over pb8/pb9 as scl/sda ====================//
@@ -123,7 +131,8 @@ fn main() -> ! {
 
     let mut txt = heapless::String::<16>::new();
     display.set_position(0, 7).unwrap();
-    write!(&mut txt, "khz:{}; div:{}", 20, duty_div).unwrap();
+    // write!(&mut txt, "khz:{}; div:{}", 20, duty).unwrap();
+    write!(&mut txt, "d:{}", max).unwrap();
     display.write_str(&txt).unwrap();
 
     // ======================= init mpu6050 over i2c ====================//
@@ -142,11 +151,27 @@ fn main() -> ! {
 
     #[allow(clippy::empty_loop)]
     loop {
-        pwm2.set_duty(Channel::C1, max / duty_div);
+        // let mut txt2 = heapless::String::<16>::new();
+        // write!(&mut txt2, "d:{}", duty).unwrap();
+        // cortex_m::interrupt::free(|cs| {
+        //     let mut display = G_DISP.borrow(cs).borrow_mut();
+        //     let d = display.as_mut().unwrap();
+        //     d.set_position(0, 7).unwrap();
+        //     d.write_str(&txt2).unwrap();
+        // });
+        pa1_break.set_low();
+        pa2_dir.toggle();
+        pa1_break.set_high();
+        // pwm2.set_duty(Channel::C1, duty);
+        delay.delay_ms(2000_u32);
+        // duty += 5;
+
         // Go to sleep
         // cortex_m::asm::wfi();
-        delay.delay_ms(2000_u32);
-        duty_div *= 2;
+
+        // pwm2.set_duty(Channel::C1, max);
+        // delay.delay_ms(2000_u32);
+        // duty_div *= 2;
     }
 }
 
