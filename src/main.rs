@@ -2,7 +2,7 @@
 #![no_main]
 #![no_std]
 
-use core::{fmt::Write, ops::DerefMut};
+use core::fmt::Write;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
 use core::cell::RefCell;
@@ -58,13 +58,13 @@ fn main() -> ! {
     let rcc = dp.RCC.constrain();
 
     // Freeze the configuration of all the clocks in the system and store the frozen frequencies
-    let clocks = rcc.cfgr.freeze(&mut flash.acr);
+    let clocks = rcc.cfgr.use_hse(8.MHz()).freeze(&mut flash.acr);
 
     // Configure the syst timer to trigger an update every second
     // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
     let dev_timer = dp.TIM3;
     let mut timer = dev_timer.counter_ms(&clocks);
-    timer.start(500.millis()).unwrap();
+    timer.start(300.millis()).unwrap();
 
     // Set up to generate interrupt when timer expires
     timer.listen(Event::Update);
@@ -160,30 +160,8 @@ fn main() -> ! {
 
     #[allow(clippy::empty_loop)]
     loop {
-        // let mut txt2 = heapless::String::<16>::new();
-        // write!(&mut txt2, "d:{}", duty).unwrap();
-        // cortex_m::interrupt::free(|cs| {
-        //     let mut display = G_DISP.borrow(cs).borrow_mut();
-        //     let d = display.as_mut().unwrap();
-        //     d.set_position(0, 7).unwrap();
-        //     d.write_str(&txt2).unwrap();
-        // });
-
-        // p_break.set_low();
-        // p_dir.toggle();
-        // p_break.set_high();
-        // delay.delay_ms(5200_u32);
-
-        // pwm2.set_duty(Channel::C1, duty);
-        // delay.delay_ms(2000_u32);
-        // duty += 5;
-
         // Go to sleep
         cortex_m::asm::wfi();
-
-        // pwm2.set_duty(Channel::C1, max);
-        // delay.delay_ms(2000_u32);
-        // duty_div *= 2;
     }
 }
 
@@ -202,8 +180,8 @@ fn TIM3() {
         // let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
         // let p_break = p_break_ref.deref_mut().as_mut().unwrap();
 
-        let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
-        let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
+        // let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
+        // let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
 
         // let mut txt = heapless::String::<16>::new();
         let mut angle_x = heapless::String::<16>::new();
@@ -212,8 +190,9 @@ fn TIM3() {
         // let mut gyro_y = heapless::String::<16>::new();
 
         let mut mpu_ref = G_MPU.borrow(cs).borrow_mut();
-        let mut display = G_DISP.borrow(cs).borrow_mut();
         let mpu = mpu_ref.as_mut().unwrap();
+
+        let mut display = G_DISP.borrow(cs).borrow_mut();
         let d = display.as_mut().unwrap();
 
         // let temp = mpu.get_temp().unwrap();
@@ -228,12 +207,12 @@ fn TIM3() {
 
         if acc_ang.x < 0.0 {
             // p_break.set_low();
-            p_dir.set_low();
+            // p_dir.set_low();
             led.as_mut().unwrap().set_high();
             // p_break.set_high();
         } else {
             // p_break.set_low();
-            p_dir.set_high();
+            // p_dir.set_high();
             led.as_mut().unwrap().set_low();
             // p_break.set_high();
         }
