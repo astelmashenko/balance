@@ -81,11 +81,14 @@ fn main() -> ! {
     // ======================= init break/dir pin ========================================//
     let mut gpioa = dp.GPIOA.split();
 
-    let mut pa1_break = gpioa.pa1.into_push_pull_output(&mut gpioa.crl);
-    pa1_break.set_high();
+    let mut p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
+    p_break.set_high();
 
-    let mut pa2_dir = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
-    pa2_dir.set_low();
+    let mut p_dir = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
+    p_dir.set_low();
+
+    let mut p_enc_en = gpioa.pa1.into_push_pull_output(&mut gpioa.crl);
+    p_enc_en.set_high();
     // ======================= init pwm pin ========================================//
     let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
 
@@ -95,8 +98,8 @@ fn main() -> ! {
         20.kHz(),
     );
     // let mut duty_div = 32;
-    let max = pwm2.get_max_duty();
-    let mut duty = 370;
+    // let max = pwm2.get_max_duty();
+    let duty = 380;
     pwm2.set_duty(Channel::C1, duty); // / duty_div
     pwm2.enable(Channel::C1);
 
@@ -132,7 +135,7 @@ fn main() -> ! {
     let mut txt = heapless::String::<16>::new();
     display.set_position(0, 7).unwrap();
     // write!(&mut txt, "khz:{}; div:{}", 20, duty).unwrap();
-    write!(&mut txt, "d:{}", max).unwrap();
+    write!(&mut txt, "d:{}", duty).unwrap();
     display.write_str(&txt).unwrap();
 
     // ======================= init mpu6050 over i2c ====================//
@@ -159,15 +162,18 @@ fn main() -> ! {
         //     d.set_position(0, 7).unwrap();
         //     d.write_str(&txt2).unwrap();
         // });
-        pa1_break.set_low();
-        pa2_dir.toggle();
-        pa1_break.set_high();
+
+        p_break.set_low();
+        p_dir.toggle();
+        p_break.set_high();
+        delay.delay_ms(5200_u32);
+
         // pwm2.set_duty(Channel::C1, duty);
-        delay.delay_ms(2000_u32);
+        // delay.delay_ms(2000_u32);
         // duty += 5;
 
         // Go to sleep
-        // cortex_m::asm::wfi();
+        cortex_m::asm::wfi();
 
         // pwm2.set_duty(Channel::C1, max);
         // delay.delay_ms(2000_u32);
@@ -187,35 +193,44 @@ fn TIM3() {
         let mut led = G_LED.borrow(cs).borrow_mut();
         led.as_mut().unwrap().toggle();
 
-        let mut txt = heapless::String::<16>::new();
+        // let mut txt = heapless::String::<16>::new();
         let mut angle_x = heapless::String::<16>::new();
-        // let mut angle_y = heapless::String::<16>::new();
-        // let mut angle_z = heapless::String::<16>::new();
+        let mut roll_x = heapless::String::<16>::new();
+        let mut gyro_x = heapless::String::<16>::new();
+        // let mut gyro_y = heapless::String::<16>::new();
 
         let mut mpu_ref = G_MPU.borrow(cs).borrow_mut();
         let mut display = G_DISP.borrow(cs).borrow_mut();
         let mpu = mpu_ref.as_mut().unwrap();
-
-        let temp = mpu.get_temp().unwrap();
-        write!(&mut txt, "Temp: {:.2}", temp).unwrap();
         let d = display.as_mut().unwrap();
-        d.set_position(0, 0).unwrap();
-        d.write_str(&txt).unwrap();
 
-        // gyro: x, y, z
-        let gyro = mpu.get_acc_angles().unwrap();
+        // let temp = mpu.get_temp().unwrap();
+        // write!(&mut txt, "Temp: {:.2}", temp).unwrap();
+        // d.set_position(0, 0).unwrap();
+        // d.write_str(&txt).unwrap();
 
-        write!(&mut angle_x, "Angle X: {:.2}", gyro.x).unwrap();
+        // gyro: x, y  https://www.nxp.com/docs/en/application-note/AN3461.pdf equation 28, 29
+        let acc_ang = mpu.get_acc_angles().unwrap();
+        // gyro accelerometer in g
+        let acc = mpu.get_acc().unwrap();
+
+        write!(&mut angle_x, "AngX: {:.2}", acc_ang.x).unwrap();
         d.set_position(0, 1).unwrap();
         d.write_str(&angle_x).unwrap();
 
-        // write!(&mut angle_y, "Angle Y: {:.2}", gyro.y).unwrap();
-        // d.set_position(0, 2).unwrap();
-        // d.write_str(&angle_y).unwrap();
+        write!(&mut roll_x, "RollX: {:.2}", acc.x).unwrap();
+        d.set_position(0, 2).unwrap();
+        d.write_str(&roll_x).unwrap();
 
-        // write!(&mut angle_z, "Angle Z: {:.2}", gyro.z).unwrap();
-        // d.set_position(0, 3).unwrap();
-        // d.write_str(&angle_z).unwrap();
+        let gyro = mpu.get_gyro().unwrap();
+
+        write!(&mut gyro_x, "Gyro X: {:.2}", gyro.x).unwrap();
+        d.set_position(0, 3).unwrap();
+        d.write_str(&gyro_x).unwrap();
+
+        // write!(&mut gyro_y, "Gyro Y: {:.2}", gyro.y).unwrap();
+        // d.set_position(0, 4).unwrap();
+        // d.write_str(&gyro_y).unwrap();
 
         // Obtain access to Global Timer Peripheral and Clear Interrupt Pending Flag
         let mut timer = G_TIM.borrow(cs).borrow_mut();
