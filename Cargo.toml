@@ -8,12 +8,12 @@ version = "0.1.0"
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
 # panic-itm = "0.4.2"
-embedded-hal = "0.2.0"
+embedded-hal = "1.0.0"
 # nb = "1"
 # stm32f1 = "0.15.1"
 ssd1306 = "0.8.4"
 # embedded-graphics = "0.8.0"
-panic-halt = "0.2.0"
+panic-halt = "1.0.0"
 mpu6050 = "0.1.6"
 heapless = "0.8.0"
 # embedded-alloc = "0.5.1"
@@ -33,6 +33,6 @@ bench = false
 
 [profile.release]
 build-override.opt-level = 1
-codegen-units = 1 # better optimizations
-debug = true      # symbols are nice and they don't increase the size on Flash
-lto = true        # better optimizations
+codegen-units = 1            # better optimizations
+debug = true                 # symbols are nice and they don't increase the size on Flash
+lto = true                   # better optimizations
