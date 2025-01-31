@@ -103,7 +103,7 @@ fn main() -> ! {
     );
     // let mut duty_div = 32;
     // let max = pwm2.get_max_duty();
-    let duty = 380;
+    let duty = 390;
     pwm2.set_duty(Channel::C1, duty); // / duty_div
     pwm2.enable(Channel::C1);
 
