@@ -2,7 +2,7 @@
 #![no_main]
 #![no_std]
 
-use core::fmt::Write;
+use core::{fmt::Write, ops::DerefMut};
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
 use core::cell::RefCell;
@@ -21,6 +21,8 @@ use stm32f1xx_hal::{
 };
 
 type LedPin = gpio::PC13<Output<PushPull>>;
+type BreakPin = gpio::PA8<Output<PushPull>>;
+type DirPin = gpio::PA2<Output<PushPull>>;
 type BlockingI2cPB89 = i2c::BlockingI2c<
     pac::I2C1,
     (
@@ -36,6 +38,8 @@ type I2cMpu6050 = Mpu6050<SharedBus<BlockingI2cPB89>>;
 static G_TIM: Mutex<RefCell<Option<CounterMs<TIM3>>>> = Mutex::new(RefCell::new(None));
 // Create a Global Variable for the LED GPIO Peripheral that I'm going to pass around.
 static G_LED: Mutex<RefCell<Option<LedPin>>> = Mutex::new(RefCell::new(None));
+static G_BREAK: Mutex<RefCell<Option<BreakPin>>> = Mutex::new(RefCell::new(None));
+static G_DIR: Mutex<RefCell<Option<DirPin>>> = Mutex::new(RefCell::new(None));
 
 static G_DISP: Mutex<RefCell<Option<I2cDisplay>>> = Mutex::new(RefCell::new(None));
 static G_MPU: Mutex<RefCell<Option<I2cMpu6050>>> = Mutex::new(RefCell::new(None));
@@ -81,14 +85,14 @@ fn main() -> ! {
     // ======================= init break/dir pin ========================================//
     let mut gpioa = dp.GPIOA.split();
 
-    let mut p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
-    p_break.set_high();
+    let p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
+    // p_break.set_high();
 
     let mut p_dir = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
     p_dir.set_low();
 
-    let mut p_enc_en = gpioa.pa1.into_push_pull_output(&mut gpioa.crl);
-    p_enc_en.set_high();
+    // let mut p_enc_en = gpioa.pa1.into_push_pull_output(&mut gpioa.crl);
+    // p_enc_en.set_low();
     // ======================= init pwm pin ========================================//
     let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
 
@@ -150,6 +154,8 @@ fn main() -> ! {
         G_MPU.borrow(cs).replace(Some(mpu));
         G_TIM.borrow(cs).replace(Some(timer));
         G_LED.borrow(cs).replace(Some(led));
+        G_BREAK.borrow(cs).replace(Some(p_break));
+        G_DIR.borrow(cs).replace(Some(p_dir));
     });
 
     #[allow(clippy::empty_loop)]
@@ -163,10 +169,10 @@ fn main() -> ! {
         //     d.write_str(&txt2).unwrap();
         // });
 
-        p_break.set_low();
-        p_dir.toggle();
-        p_break.set_high();
-        delay.delay_ms(5200_u32);
+        // p_break.set_low();
+        // p_dir.toggle();
+        // p_break.set_high();
+        // delay.delay_ms(5200_u32);
 
         // pwm2.set_duty(Channel::C1, duty);
         // delay.delay_ms(2000_u32);
@@ -191,7 +197,13 @@ fn TIM3() {
     cortex_m::interrupt::free(|cs| {
         // Obtain Access to Delay Global Data and Adjust Delay
         let mut led = G_LED.borrow(cs).borrow_mut();
-        led.as_mut().unwrap().toggle();
+        // led.as_mut().unwrap().toggle();
+
+        // let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
+        // let p_break = p_break_ref.deref_mut().as_mut().unwrap();
+
+        let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
+        let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
 
         // let mut txt = heapless::String::<16>::new();
         let mut angle_x = heapless::String::<16>::new();
@@ -213,6 +225,18 @@ fn TIM3() {
         let acc_ang = mpu.get_acc_angles().unwrap();
         // gyro accelerometer in g
         let acc = mpu.get_acc().unwrap();
+
+        if acc_ang.x < 0.0 {
+            // p_break.set_low();
+            p_dir.set_low();
+            led.as_mut().unwrap().set_high();
+            // p_break.set_high();
+        } else {
+            // p_break.set_low();
+            p_dir.set_high();
+            led.as_mut().unwrap().set_low();
+            // p_break.set_high();
+        }
 
         write!(&mut angle_x, "AngX: {:.2}", acc_ang.x).unwrap();
         d.set_position(0, 1).unwrap();
