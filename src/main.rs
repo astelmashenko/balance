@@ -2,6 +2,10 @@
 #![no_main]
 #![no_std]
 
+pub mod aux;
+
+use aux::{init_devices, init_display, init_i2c};
+
 use core::fmt::Write;
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
@@ -10,24 +14,22 @@ use cortex_m::interrupt::Mutex;
 
 use mpu6050::*;
 use panic_halt as _;
-use shared_bus_rtic::SharedBus;
+use shared_bus_rtic::{CommonBus, SharedBus};
 use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{
-    gpio::{self, Alternate, OpenDrain, Output, Pin, PushPull},
-    i2c,
-    pac::{self, interrupt, TIM3},
-    prelude::*,
-    timer::{Channel, CounterMs, Event, Tim2NoRemap, Timer2},
+    afio::MAPR, gpio::{self, Alternate, OpenDrain, Output, Pin, PushPull}, i2c::{self, BlockingI2c}, pac::{self, interrupt, I2C1, TIM3}, prelude::*, rcc::Clocks, timer::{Channel, CounterMs, Event, Tim2NoRemap, Timer2}
 };
 
 type LedPin = gpio::PC13<Output<PushPull>>;
 type BreakPin = gpio::PA8<Output<PushPull>>;
 type DirPin = gpio::PA2<Output<PushPull>>;
+type BScl = Pin<'B', 8, Alternate<OpenDrain>>;
+type BSda = Pin<'B', 9, Alternate<OpenDrain>>;
 type BlockingI2cPB89 = i2c::BlockingI2c<
     pac::I2C1,
     (
-        Pin<'B', 8, Alternate<OpenDrain>>,
-        Pin<'B', 9, Alternate<OpenDrain>>,
+        BScl,
+        BSda,
     ),
 >;
 type I2cDisplay =
@@ -46,24 +48,12 @@ static G_MPU: Mutex<RefCell<Option<I2cMpu6050>>> = Mutex::new(RefCell::new(None)
 
 #[entry]
 fn main() -> ! {
-    // Get access to the core peripherals from the cortex-m crate
-    // let cp = cortex_m::Peripherals::take().unwrap();
-    // Get access to the device specific peripherals from the peripheral access crate
-    let dp = pac::Peripherals::take().unwrap();
-    let mut afio = dp.AFIO.constrain();
+    let (mut afio, clocks, mut timer, 
+        mut gpioa, mut gpiob, mut gpioc, dp_i2c1, dp_tim1, dp_tim2) = init_devices();
 
     // ======================= init interrupts of timer ==============================//
-    // Take ownership over the raw flash and rcc devices and convert them into the corresponding HAL structs
-    let mut flash = dp.FLASH.constrain();
-    let rcc = dp.RCC.constrain();
-
-    // Freeze the configuration of all the clocks in the system and store the frozen frequencies
-    let clocks = rcc.cfgr.use_hse(8.MHz()).freeze(&mut flash.acr);
-
     // Configure the syst timer to trigger an update every second
     // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    let dev_timer = dp.TIM3;
-    let mut timer = dev_timer.counter_ms(&clocks);
     timer.start(300.millis()).unwrap();
 
     // Set up to generate interrupt when timer expires
@@ -75,16 +65,11 @@ fn main() -> ! {
     }
 
     // ======================= init led pin ========================================//
-    // Acquire the GPIOC peripheral
-    let mut gpioc = dp.GPIOC.split();
-
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // ======================= init break/dir pin ========================================//
-    let mut gpioa = dp.GPIOA.split();
-
     let p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
     // p_break.set_high();
 
@@ -96,7 +81,7 @@ fn main() -> ! {
     // ======================= init pwm pin ========================================//
     let pina0_pwm = gpioa.pa0.into_alternate_push_pull(&mut gpioa.crl);
 
-    let mut pwm2 = Timer2::new(dp.TIM2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(
+    let mut pwm2 = Timer2::new(dp_tim2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(
         pina0_pwm,
         &mut afio.mapr,
         20.kHz(),
@@ -108,43 +93,22 @@ fn main() -> ! {
     pwm2.enable(Channel::C1);
 
     // ======================= init i2c over pb8/pb9 as scl/sda ====================//
-    let mut gpiob = dp.GPIOB.split();
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
 
-    let i2c_2 = i2c::BlockingI2c::i2c1(
-        dp.I2C1,
-        (scl, sda),
-        &mut afio.mapr,
-        i2c::Mode::Standard {
-            frequency: 100_000.Hz(),
-        },
-        clocks,
-        // below are different timeouts
-        1000,
-        10,
-        1000,
-        1000,
-    );
+    let i2c_sbus = init_i2c(scl, sda, dp_i2c1, &mut afio.mapr, clocks);
 
-    // ======================= init i2c over pb8/pb9 as scl/sda ====================//
-    let i2c_sbus = shared_bus_rtic::new!(i2c_2, BlockingI2cPB89);
-    let interface = I2CDisplayInterface::new(i2c_sbus.acquire());
-
-    let mut display =
-        Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0).into_terminal_mode();
-    display.init().unwrap();
-    display.clear().unwrap();
+    // ======================= init i2c display ====================//
+    let mut display = init_display(i2c_sbus);
 
     let mut txt = heapless::String::<16>::new();
     display.set_position(0, 7).unwrap();
-    // write!(&mut txt, "khz:{}; div:{}", 20, duty).unwrap();
     write!(&mut txt, "d:{}", duty).unwrap();
     display.write_str(&txt).unwrap();
 
     // ======================= init mpu6050 over i2c ====================//
     let mut mpu = Mpu6050::new(i2c_sbus.acquire());
-    let mut delay = dp.TIM1.delay_ms(&clocks);
+    let mut delay = dp_tim1.delay_ms(&clocks);
     mpu.init(&mut delay).unwrap();
 
     // ======================= init global var to use inside interrupt handler ====================//
