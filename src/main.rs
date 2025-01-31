@@ -4,9 +4,10 @@
 
 pub mod aux;
 
-use aux::{init_devices, init_display, init_i2c};
+use aux::{init_devices, init_display, init_i2c, init_timer_int};
+use heapless::String;
 
-use core::fmt::Write;
+use core::{fmt::Write, ops::DerefMut};
 use cortex_m_rt::{entry, exception, ExceptionFrame};
 
 use core::cell::RefCell;
@@ -14,10 +15,14 @@ use cortex_m::interrupt::Mutex;
 
 use mpu6050::*;
 use panic_halt as _;
-use shared_bus_rtic::{CommonBus, SharedBus};
-use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
+use shared_bus_rtic::SharedBus;
+use ssd1306::{mode::TerminalMode, prelude::*, Ssd1306};
 use stm32f1xx_hal::{
-    afio::MAPR, gpio::{self, Alternate, OpenDrain, Output, Pin, PushPull}, i2c::{self, BlockingI2c}, pac::{self, interrupt, I2C1, TIM3}, prelude::*, rcc::Clocks, timer::{Channel, CounterMs, Event, Tim2NoRemap, Timer2}
+    gpio::{self, Alternate, OpenDrain, Output, Pin, PushPull},
+    i2c::{self},
+    pac::{self, interrupt, TIM3},
+    prelude::*,
+    timer::{Channel, CounterMs, Event, Tim2NoRemap, Timer2},
 };
 
 type LedPin = gpio::PC13<Output<PushPull>>;
@@ -25,13 +30,7 @@ type BreakPin = gpio::PA8<Output<PushPull>>;
 type DirPin = gpio::PA2<Output<PushPull>>;
 type BScl = Pin<'B', 8, Alternate<OpenDrain>>;
 type BSda = Pin<'B', 9, Alternate<OpenDrain>>;
-type BlockingI2cPB89 = i2c::BlockingI2c<
-    pac::I2C1,
-    (
-        BScl,
-        BSda,
-    ),
->;
+type BlockingI2cPB89 = i2c::BlockingI2c<pac::I2C1, (BScl, BSda)>;
 type I2cDisplay =
     Ssd1306<I2CInterface<SharedBus<BlockingI2cPB89>>, DisplaySize128x64, TerminalMode>;
 type I2cMpu6050 = Mpu6050<SharedBus<BlockingI2cPB89>>;
@@ -48,21 +47,10 @@ static G_MPU: Mutex<RefCell<Option<I2cMpu6050>>> = Mutex::new(RefCell::new(None)
 
 #[entry]
 fn main() -> ! {
-    let (mut afio, clocks, mut timer, 
-        mut gpioa, mut gpiob, mut gpioc, dp_i2c1, dp_tim1, dp_tim2) = init_devices();
+    let (mut afio, clocks, mut timer, mut gpioa, mut gpiob, mut gpioc, dp_i2c1, dp_tim1, dp_tim2) =
+        init_devices();
 
-    // ======================= init interrupts of timer ==============================//
-    // Configure the syst timer to trigger an update every second
-    // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    timer.start(300.millis()).unwrap();
-
-    // Set up to generate interrupt when timer expires
-    timer.listen(Event::Update);
-
-    // Enable the external interrupt in the NVIC for all peripherals by passing the interrupt numbers
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(interrupt::TIM3);
-    }
+    init_timer_int(&mut timer);
 
     // ======================= init led pin ========================================//
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
@@ -70,8 +58,8 @@ fn main() -> ! {
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // ======================= init break/dir pin ========================================//
-    let p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
-    // p_break.set_high();
+    let mut p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
+    p_break.set_high();
 
     let mut p_dir = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
     p_dir.set_low();
@@ -101,7 +89,7 @@ fn main() -> ! {
     // ======================= init i2c display ====================//
     let mut display = init_display(i2c_sbus);
 
-    let mut txt = heapless::String::<16>::new();
+    let mut txt = String::<16>::new();
     display.set_position(0, 7).unwrap();
     write!(&mut txt, "d:{}", duty).unwrap();
     display.write_str(&txt).unwrap();
@@ -131,53 +119,42 @@ fn main() -> ! {
 
 #[interrupt]
 fn TIM3() {
-    // When Timer Interrupt Happens Two Things Need to be Done
-    // 1) Toggle the LED
-    // 2) Clear Timer Pending Interrupt
-
     // Start a Critical Section to work with global vars
     cortex_m::interrupt::free(|cs| {
-        // Obtain Access to Delay Global Data and Adjust Delay
-        let mut led = G_LED.borrow(cs).borrow_mut();
-        // led.as_mut().unwrap().toggle();
+        let mut led_ref = G_LED.borrow(cs).borrow_mut();
+        let led = led_ref.deref_mut().as_mut().unwrap();
+        // led.toggle();
 
         // let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
         // let p_break = p_break_ref.deref_mut().as_mut().unwrap();
 
-        // let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
-        // let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
+        let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
+        let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
 
-        // let mut txt = heapless::String::<16>::new();
-        let mut angle_x = heapless::String::<16>::new();
-        let mut roll_x = heapless::String::<16>::new();
-        let mut gyro_x = heapless::String::<16>::new();
-        // let mut gyro_y = heapless::String::<16>::new();
+        let mut angle_x = String::<16>::new();
+        let mut roll_x = String::<16>::new();
+        let mut gyro_x = String::<16>::new();
 
         let mut mpu_ref = G_MPU.borrow(cs).borrow_mut();
-        let mpu = mpu_ref.as_mut().unwrap();
+        let mpu = mpu_ref.deref_mut().as_mut().unwrap();
 
         let mut display = G_DISP.borrow(cs).borrow_mut();
-        let d = display.as_mut().unwrap();
-
-        // let temp = mpu.get_temp().unwrap();
-        // write!(&mut txt, "Temp: {:.2}", temp).unwrap();
-        // d.set_position(0, 0).unwrap();
-        // d.write_str(&txt).unwrap();
+        let d = display.deref_mut().as_mut().unwrap();
 
         // gyro: x, y  https://www.nxp.com/docs/en/application-note/AN3461.pdf equation 28, 29
         let acc_ang = mpu.get_acc_angles().unwrap();
-        // gyro accelerometer in g
+        // gyro accelerometer as internal mcu value
         let acc = mpu.get_acc().unwrap();
 
         if acc_ang.x < 0.0 {
             // p_break.set_low();
-            // p_dir.set_low();
-            led.as_mut().unwrap().set_high();
+            p_dir.set_low();
+            led.set_high();
             // p_break.set_high();
         } else {
             // p_break.set_low();
-            // p_dir.set_high();
-            led.as_mut().unwrap().set_low();
+            p_dir.set_high();
+            led.set_low();
             // p_break.set_high();
         }
 
@@ -195,13 +172,13 @@ fn TIM3() {
         d.set_position(0, 3).unwrap();
         d.write_str(&gyro_x).unwrap();
 
-        // write!(&mut gyro_y, "Gyro Y: {:.2}", gyro.y).unwrap();
-        // d.set_position(0, 4).unwrap();
-        // d.write_str(&gyro_y).unwrap();
-
         // Obtain access to Global Timer Peripheral and Clear Interrupt Pending Flag
         let mut timer = G_TIM.borrow(cs).borrow_mut();
-        timer.as_mut().unwrap().clear_interrupt(Event::Update);
+        timer
+            .deref_mut()
+            .as_mut()
+            .unwrap()
+            .clear_interrupt(Event::Update);
     });
 }
 

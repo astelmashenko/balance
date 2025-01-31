@@ -1,33 +1,35 @@
-use core::fmt::Write;
-use cortex_m_rt::{entry, exception, ExceptionFrame};
+// use core::fmt::Write;
 
-use core::cell::RefCell;
-use cortex_m::interrupt::Mutex;
-
-use mpu6050::*;
-use shared_bus_rtic::{CommonBus, SharedBus};
+use shared_bus_rtic::CommonBus;
 use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{
-    afio::{self, MAPR}, flash, gpio::{self, gpioa, gpiob, gpioc, Alternate, OpenDrain, Output, Pin, PushPull}, i2c::{self, BlockingI2c}, pac::{self, interrupt, AFIO, FLASH, I2C1, RCC, TIM1, TIM2, TIM3}, prelude::*, rcc::{Clocks, Rcc}, timer::{Channel, Counter, CounterMs, Event, Tim2NoRemap, Timer2}
+    afio::{self, MAPR},
+    gpio::{
+        gpioa::{self},
+        gpiob, gpioc, Alternate, OpenDrain, Pin,
+    },
+    i2c::{self, BlockingI2c},
+    pac::{self, interrupt, I2C1, TIM1, TIM2, TIM3},
+    prelude::*,
+    rcc::Clocks,
+    timer::{Counter, Event},
 };
 
-type LedPin = gpio::PC13<Output<PushPull>>;
-type BreakPin = gpio::PA8<Output<PushPull>>;
-type DirPin = gpio::PA2<Output<PushPull>>;
 type BScl = Pin<'B', 8, Alternate<OpenDrain>>;
 type BSda = Pin<'B', 9, Alternate<OpenDrain>>;
-type BlockingI2cPB89 = i2c::BlockingI2c<
-    pac::I2C1,
-    (
-        BScl,
-        BSda,
-    ),
->;
-type I2cDisplay =
-    Ssd1306<I2CInterface<SharedBus<BlockingI2cPB89>>, DisplaySize128x64, TerminalMode>;
-type I2cMpu6050 = Mpu6050<SharedBus<BlockingI2cPB89>>;
+type BlockingI2cPB89 = i2c::BlockingI2c<pac::I2C1, (BScl, BSda)>;
 
-pub fn init_devices() -> (afio::Parts, Clocks, Counter<TIM3, 1000>, gpioa::Parts, gpiob::Parts, gpioc::Parts, I2C1, TIM1, TIM2) {
+pub fn init_devices() -> (
+    afio::Parts,
+    Clocks,
+    Counter<TIM3, 1000>,
+    gpioa::Parts,
+    gpiob::Parts,
+    gpioc::Parts,
+    I2C1,
+    TIM1,
+    TIM2,
+) {
     // Get access to the core peripherals from the cortex-m crate
     // let cp = cortex_m::Peripherals::take().unwrap();
     // Get access to the device specific peripherals from the peripheral access crate
@@ -45,14 +47,21 @@ pub fn init_devices() -> (afio::Parts, Clocks, Counter<TIM3, 1000>, gpioa::Parts
 
     // Acquire the GPIO* peripheral
     let gpioc = dp.GPIOC.split();
-    let mut gpioa = dp.GPIOA.split();
-    let mut gpiob = dp.GPIOB.split();
-    
+    let gpioa = dp.GPIOA.split();
+    let gpiob = dp.GPIOB.split();
 
-    (afio, clocks, timer, gpioa, gpiob, gpioc, dp.I2C1, dp.TIM1, dp.TIM2)
+    (
+        afio, clocks, timer, gpioa, gpiob, gpioc, dp.I2C1, dp.TIM1, dp.TIM2,
+    )
 }
 
-pub fn init_i2c(scl: BScl, sda: BSda, i2c1: I2C1, mapr: &mut MAPR, clocks: Clocks) -> &'static CommonBus<BlockingI2c<I2C1, (BScl, BSda)>> {
+pub fn init_i2c(
+    scl: BScl,
+    sda: BSda,
+    i2c1: I2C1,
+    mapr: &mut MAPR,
+    clocks: Clocks,
+) -> &'static CommonBus<BlockingI2c<I2C1, (BScl, BSda)>> {
     let i2c_2 = i2c::BlockingI2c::i2c1(
         i2c1,
         (scl, sda),
@@ -63,7 +72,7 @@ pub fn init_i2c(scl: BScl, sda: BSda, i2c1: I2C1, mapr: &mut MAPR, clocks: Clock
         clocks,
         // below are different timeouts
         1000, // start_timeout_us
-        10, // start_retries
+        10,   // start_retries
         1000, // addr_timeout_us
         1000, // data_timeout_us
     );
@@ -72,7 +81,11 @@ pub fn init_i2c(scl: BScl, sda: BSda, i2c1: I2C1, mapr: &mut MAPR, clocks: Clock
     i2c_sbus
 }
 
-pub fn init_display(i2c_sbus: &CommonBus<BlockingI2c<I2C1, (BScl, BSda)>>) -> Ssd1306<I2CInterface<&CommonBus<BlockingI2c<I2C1, (BScl, BSda)>>>, DisplaySize128x64, TerminalMode> {
+type DisplayIface = I2CInterface<&'static CommonBus<BlockingI2c<I2C1, (BScl, BSda)>>>;
+
+pub fn init_display(
+    i2c_sbus: &'static CommonBus<BlockingI2c<I2C1, (BScl, BSda)>>,
+) -> Ssd1306<DisplayIface, DisplaySize128x64, TerminalMode> {
     let interface = I2CDisplayInterface::new(i2c_sbus.acquire());
 
     let mut display =
@@ -80,4 +93,19 @@ pub fn init_display(i2c_sbus: &CommonBus<BlockingI2c<I2C1, (BScl, BSda)>>) -> Ss
     display.init().unwrap();
     display.clear().unwrap();
     display
+}
+
+pub fn init_timer_int(timer: &mut Counter<TIM3, 1000>) {
+    // ======================= init interrupts of timer ==============================//
+    // Configure the syst timer to trigger an update every second
+    // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
+    timer.start(300.millis()).unwrap();
+
+    // Set up to generate interrupt when timer expires
+    timer.listen(Event::Update);
+
+    // Enable the external interrupt in the NVIC for all peripherals by passing the interrupt numbers
+    unsafe {
+        cortex_m::peripheral::NVIC::unmask(interrupt::TIM3);
+    }
 }
