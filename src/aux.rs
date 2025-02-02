@@ -41,7 +41,14 @@ pub fn init_devices() -> (
     let rcc = dp.RCC.constrain();
 
     // Freeze the configuration of all the clocks in the system and store the frozen frequencies
-    let clocks = rcc.cfgr.use_hse(8.MHz()).freeze(&mut flash.acr);
+    // let clocks = rcc.cfgr.use_hse(8.MHz()).freeze(&mut flash.acr);
+
+    let clocks = rcc
+        .cfgr
+        .use_hse(8.MHz())
+        .sysclk(48.MHz())
+        .pclk1(6.MHz())
+        .freeze(&mut flash.acr);
 
     let timer = dp.TIM3.counter_ms(&clocks);
 
@@ -99,7 +106,7 @@ pub fn init_timer_int(timer: &mut Counter<TIM3, 1000>) {
     // ======================= init interrupts of timer ==============================//
     // Configure the syst timer to trigger an update every second
     // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    timer.start(300.millis()).unwrap();
+    timer.start(400.millis()).unwrap();
 
     // Set up to generate interrupt when timer expires
     timer.listen(Event::Update);

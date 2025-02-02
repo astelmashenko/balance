@@ -18,7 +18,7 @@ mpu6050 = "0.1.6"
 heapless = "0.8.0"
 # embedded-alloc = "0.5.1"
 # shared-bus = "0.3.1"
-shared-bus-rtic = "0.2.2"
+shared-bus-rtic = "0.2.3"
 # embedded-hal-bus = "0.1.0"
 
 [dependencies.stm32f1xx-hal]

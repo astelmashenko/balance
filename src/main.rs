@@ -59,7 +59,8 @@ fn main() -> ! {
 
     // ======================= init break/dir pin ========================================//
     let mut p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
-    p_break.set_high();
+    // p_break.set_low();
+    m_start(&mut p_break);
 
     let mut p_dir = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
     p_dir.set_low();
@@ -75,9 +76,9 @@ fn main() -> ! {
         20.kHz(),
     );
     // let mut duty_div = 32;
-    // let max = pwm2.get_max_duty();
-    let duty = 390;
-    pwm2.set_duty(Channel::C1, duty); // / duty_div
+    let max = pwm2.get_max_duty();
+    let duty = 560; //585
+    pwm2.set_duty(Channel::C1, duty);
     pwm2.enable(Channel::C1);
 
     // ======================= init i2c over pb8/pb9 as scl/sda ====================//
@@ -90,8 +91,8 @@ fn main() -> ! {
     let mut display = init_display(i2c_sbus);
 
     let mut txt = String::<16>::new();
-    display.set_position(0, 7).unwrap();
-    write!(&mut txt, "d:{}", duty).unwrap();
+    display.set_position(0, 6).unwrap();
+    write!(&mut txt, "max:{}", max).unwrap();
     display.write_str(&txt).unwrap();
 
     // ======================= init mpu6050 over i2c ====================//
@@ -110,10 +111,22 @@ fn main() -> ! {
         G_DIR.borrow(cs).replace(Some(p_dir));
     });
 
+    let mut txt2 = heapless::String::<16>::new();
+    write!(&mut txt2, "d:{}", duty).unwrap();
+    cortex_m::interrupt::free(|cs| {
+        let mut display = G_DISP.borrow(cs).borrow_mut();
+        let d = display.as_mut().unwrap();
+        d.set_position(0, 7).unwrap();
+        d.write_str(&txt2).unwrap();
+    });
+
     #[allow(clippy::empty_loop)]
     loop {
         // Go to sleep
         cortex_m::asm::wfi();
+        // delay.delay_ms(2000_u32);
+
+        // p_break.toggle();
     }
 }
 
@@ -125,8 +138,8 @@ fn TIM3() {
         let led = led_ref.deref_mut().as_mut().unwrap();
         // led.toggle();
 
-        // let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
-        // let p_break = p_break_ref.deref_mut().as_mut().unwrap();
+        let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
+        let p_break = p_break_ref.deref_mut().as_mut().unwrap();
 
         let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
         let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
@@ -147,15 +160,15 @@ fn TIM3() {
         let acc = mpu.get_acc().unwrap();
 
         if acc_ang.x < 0.0 {
-            // p_break.set_low();
+            m_stop(p_break);
             p_dir.set_low();
             led.set_high();
-            // p_break.set_high();
+            m_start(p_break);
         } else {
-            // p_break.set_low();
+            m_stop(p_break);
             p_dir.set_high();
             led.set_low();
-            // p_break.set_high();
+            m_start(p_break);
         }
 
         write!(&mut angle_x, "AngX: {:.2}", acc_ang.x).unwrap();
@@ -180,6 +193,14 @@ fn TIM3() {
             .unwrap()
             .clear_interrupt(Event::Update);
     });
+}
+
+pub fn m_start(p_break: &mut BreakPin) {
+    p_break.set_low();
+}
+
+pub fn m_stop(p_break: &mut BreakPin) {
+    p_break.set_high();
 }
 
 #[exception]
