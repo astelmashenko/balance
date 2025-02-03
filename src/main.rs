@@ -123,10 +123,40 @@ fn main() -> ! {
     #[allow(clippy::empty_loop)]
     loop {
         // Go to sleep
-        cortex_m::asm::wfi();
-        // delay.delay_ms(2000_u32);
+        // cortex_m::asm::wfi();
+        delay.delay_ms(50_u32);
 
         // p_break.toggle();
+        //
+        cortex_m::interrupt::free(|cs| {
+            let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
+            let p_break = p_break_ref.deref_mut().as_mut().unwrap();
+            let mut led_ref = G_LED.borrow(cs).borrow_mut();
+            let led = led_ref.deref_mut().as_mut().unwrap();
+
+            let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
+            let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
+
+            let mut mpu_ref = G_MPU.borrow(cs).borrow_mut();
+            let mpu = mpu_ref.deref_mut().as_mut().unwrap();
+
+            // gyro: x, y  https://www.nxp.com/docs/en/application-note/AN3461.pdf equation 28, 29
+            let acc_ang = mpu.get_acc_angles().unwrap();
+            // gyro accelerometer as internal mcu value
+            // let acc = mpu.get_acc().unwrap();
+
+            if acc_ang.x < 0.0 {
+                m_stop(p_break);
+                p_dir.set_low();
+                led.set_high();
+                m_start(p_break);
+            } else {
+                m_stop(p_break);
+                p_dir.set_high();
+                led.set_low();
+                m_start(p_break);
+            }
+        });
     }
 }
 
@@ -134,15 +164,19 @@ fn main() -> ! {
 fn TIM3() {
     // Start a Critical Section to work with global vars
     cortex_m::interrupt::free(|cs| {
-        let mut led_ref = G_LED.borrow(cs).borrow_mut();
-        let led = led_ref.deref_mut().as_mut().unwrap();
+        let mut timer_ref = G_TIM.borrow(cs).borrow_mut();
+        let timer = timer_ref.deref_mut().as_mut().unwrap();
+        // timer.unlisten(Event::Update);
+
+        // let mut led_ref = G_LED.borrow(cs).borrow_mut();
+        // let led = led_ref.deref_mut().as_mut().unwrap();
         // led.toggle();
 
-        let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
-        let p_break = p_break_ref.deref_mut().as_mut().unwrap();
+        // let mut p_break_ref = G_BREAK.borrow(cs).borrow_mut();
+        // let p_break = p_break_ref.deref_mut().as_mut().unwrap();
 
-        let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
-        let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
+        // let mut p_dir_ref = G_DIR.borrow(cs).borrow_mut();
+        // let p_dir = p_dir_ref.deref_mut().as_mut().unwrap();
 
         let mut angle_x = String::<16>::new();
         let mut roll_x = String::<16>::new();
@@ -159,18 +193,18 @@ fn TIM3() {
         // gyro accelerometer as internal mcu value
         let acc = mpu.get_acc().unwrap();
 
-        if acc_ang.x < 0.0 {
-            m_stop(p_break);
-            p_dir.set_low();
-            led.set_high();
-            m_start(p_break);
-        } else {
-            m_stop(p_break);
-            p_dir.set_high();
-            led.set_low();
-            m_start(p_break);
-        }
-
+        // if acc_ang.x < 0.0 {
+        //     m_stop(p_break);
+        //     p_dir.set_low();
+        //     led.set_high();
+        //     m_start(p_break);
+        // } else {
+        //     m_stop(p_break);
+        //     p_dir.set_high();
+        //     led.set_low();
+        //     m_start(p_break);
+        // }
+        //
         write!(&mut angle_x, "AngX: {:.2}", acc_ang.x).unwrap();
         d.set_position(0, 1).unwrap();
         d.write_str(&angle_x).unwrap();
@@ -186,12 +220,7 @@ fn TIM3() {
         d.write_str(&gyro_x).unwrap();
 
         // Obtain access to Global Timer Peripheral and Clear Interrupt Pending Flag
-        let mut timer = G_TIM.borrow(cs).borrow_mut();
-        timer
-            .deref_mut()
-            .as_mut()
-            .unwrap()
-            .clear_interrupt(Event::Update);
+        timer.clear_interrupt(Event::Update);
     });
 }
 

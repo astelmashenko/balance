@@ -106,7 +106,7 @@ pub fn init_timer_int(timer: &mut Counter<TIM3, 1000>) {
     // ======================= init interrupts of timer ==============================//
     // Configure the syst timer to trigger an update every second
     // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    timer.start(400.millis()).unwrap();
+    timer.start(500.millis()).unwrap();
 
     // Set up to generate interrupt when timer expires
     timer.listen(Event::Update);
