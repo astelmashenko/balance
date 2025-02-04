@@ -22,6 +22,7 @@ set style sources off
 
 # Set a breakpoint at main, aka entry
 # break main
+# break TIM3
 
 # Set a breakpoint at DefaultHandler
 break DefaultHandler
@@ -33,4 +34,4 @@ break HardFault
 continue
 
 # Step from the trampoline code in entry into main
-step
+# step

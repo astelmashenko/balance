@@ -50,8 +50,7 @@ fn main() -> ! {
     let (mut afio, clocks, mut timer, mut gpioa, mut gpiob, mut gpioc, dp_i2c1, dp_tim1, dp_tim2) =
         init_devices();
 
-    init_timer_int(&mut timer);
-
+    // init_timer_int(&mut timer);
     // ======================= init led pin ========================================//
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
@@ -100,6 +99,13 @@ fn main() -> ! {
     let mut delay = dp_tim1.delay_ms(&clocks);
     mpu.init(&mut delay).unwrap();
 
+    let mut txt2 = heapless::String::<16>::new();
+    write!(&mut txt2, "d:{}", duty).unwrap();
+    display.set_position(0, 7).unwrap();
+    display.write_str(&txt2).unwrap();
+
+    init_timer_int(&mut timer);
+
     // ======================= init global var to use inside interrupt handler ====================//
     cortex_m::interrupt::free(|cs| {
         // G_I2C2.borrow(cs).replace(Some(i2c_2));
@@ -109,15 +115,6 @@ fn main() -> ! {
         G_LED.borrow(cs).replace(Some(led));
         G_BREAK.borrow(cs).replace(Some(p_break));
         G_DIR.borrow(cs).replace(Some(p_dir));
-    });
-
-    let mut txt2 = heapless::String::<16>::new();
-    write!(&mut txt2, "d:{}", duty).unwrap();
-    cortex_m::interrupt::free(|cs| {
-        let mut display = G_DISP.borrow(cs).borrow_mut();
-        let d = display.as_mut().unwrap();
-        d.set_position(0, 7).unwrap();
-        d.write_str(&txt2).unwrap();
     });
 
     #[allow(clippy::empty_loop)]
