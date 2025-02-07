@@ -1,5 +1,3 @@
-// use core::fmt::Write;
-
 use shared_bus_rtic::CommonBus;
 use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{
@@ -102,11 +100,11 @@ pub fn init_display(
     display
 }
 
-pub fn init_timer_int(timer: &mut Counter<TIM3, 1000>) {
+pub fn init_timer_int(timer: &mut Counter<TIM3, 1000>, timeout: u32) {
     // ======================= init interrupts of timer ==============================//
     // Configure the syst timer to trigger an update every second
     // let mut sys_timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    timer.start(100.millis()).unwrap();
+    timer.start(timeout.millis()).unwrap();
 
     // Set up to generate interrupt when timer expires
     timer.listen(Event::Update);

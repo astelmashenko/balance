@@ -20,10 +20,15 @@ heapless = "0.8.0"
 # shared-bus = "0.3.1"
 shared-bus-rtic = "0.2.3"
 # embedded-hal-bus = "0.1.0"
+# libm = "0.2.11"
 
 [dependencies.stm32f1xx-hal]
 version = "0.10.0"
 features = ["rt", "stm32f103", "medium"]
+
+# [dependencies.nalgebra]
+# default-features = false
+# version = "0.31.4"
 
 # this lets you use `cargo fix`!
 [[bin]]
