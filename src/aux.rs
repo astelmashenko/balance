@@ -7,10 +7,10 @@ use stm32f1xx_hal::{
         gpiob, gpioc, Alternate, OpenDrain, Pin,
     },
     i2c::{self, BlockingI2c},
-    pac::{self, interrupt, I2C1, TIM1, TIM2, TIM3},
+    pac::{self, interrupt, I2C1, TIM1, TIM2, TIM3, TIM4},
     prelude::*,
     rcc::Clocks,
-    timer::{Counter, Event},
+    timer::{Counter, CounterMs, Event},
 };
 
 type BScl = Pin<'B', 8, Alternate<OpenDrain>>;
@@ -27,6 +27,7 @@ pub fn init_devices() -> (
     I2C1,
     TIM1,
     TIM2,
+    TIM4,
 ) {
     // Get access to the core peripherals from the cortex-m crate
     // let cp = cortex_m::Peripherals::take().unwrap();
@@ -56,7 +57,7 @@ pub fn init_devices() -> (
     let gpiob = dp.GPIOB.split();
 
     (
-        afio, clocks, timer, gpioa, gpiob, gpioc, dp.I2C1, dp.TIM1, dp.TIM2,
+        afio, clocks, timer, gpioa, gpiob, gpioc, dp.I2C1, dp.TIM1, dp.TIM2, dp.TIM4,
     )
 }
 
@@ -113,4 +114,20 @@ pub fn init_timer_int(timer: &mut Counter<TIM3, 1000>, timeout: u32) {
     unsafe {
         cortex_m::peripheral::NVIC::unmask(interrupt::TIM3);
     }
+}
+
+/// Initialize TIM4 for the PID control loop at 100Hz (10ms period)
+pub fn init_control_timer(tim4: TIM4, clocks: &Clocks) -> CounterMs<TIM4> {
+    let mut timer = tim4.counter_ms(clocks);
+    timer.start(10.millis()).unwrap(); // 100Hz = 10ms period
+
+    // Set up to generate interrupt when timer expires
+    timer.listen(Event::Update);
+
+    // Enable the external interrupt in the NVIC
+    unsafe {
+        cortex_m::peripheral::NVIC::unmask(interrupt::TIM4);
+    }
+
+    timer
 }
