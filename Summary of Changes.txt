@@ -1,0 +1,36 @@
+Summary of Changes
+
+  src/pid.rs - Complete rewrite
+
+  - PidConfig: Tunable gains (Kp=30, Ki=0.5, Kd=0.8), setpoint, limits
+  - PidState: Integral accumulator, previous error/derivative
+  - AngleEstimator: Complementary filter (alpha=0.98) for gyro+accel fusion
+  - BalanceController: Combined controller with update() method
+
+  src/aux.rs - Added TIM4
+
+  - Added init_control_timer() for 100Hz control loop
+  - Updated init_devices() to return TIM4
+
+  src/main.rs - Major restructure
+
+  - New globals: G_PWM_CH (PWM channel), G_CONTROLLER, G_CONTROL_TIM, G_PWM_VAL, G_ANGLE
+  - TIM4 interrupt (100Hz): Reads sensors, runs complementary filter, computes PID, applies motor output
+  - TIM3 interrupt (10Hz): Display only - shows fused angle, raw angle, gyro, PWM, integral, gains
+  - apply_motor_output(): Maps PID output to PWM duty + direction
+  - Safety: Stops motor if angle > 45 degrees
+
+  Key Fixes
+
+  1. PWM now stored globally - duty cycle actually gets updated
+  2. Complementary filter - fuses gyro + accel for stable angle estimation
+  3. Standard PID - proper integral (with anti-windup) and derivative terms
+  4. 100Hz control loop - precise timing via timer interrupt
+
+  Next Steps (Tuning)
+
+  1. Flash the firmware
+  2. Determine correct MPU axis (tilt robot, see which angle changes on display)
+  3. If needed, change gyro.x to gyro.y in TIM4 handler
+  4. Tune PID: Start with Ki=0, Kd=0, increase Kp until oscillation, back off, add Kd, then small Ki
+  5. Adjust setpoint if robot consistently leans
