@@ -58,10 +58,11 @@ static G_PWM_CH: Mutex<RefCell<Option<Pwm2Channel>>> = Mutex::new(RefCell::new(N
 // PID controller
 static G_CONTROLLER: Mutex<RefCell<Option<BalanceController>>> = Mutex::new(RefCell::new(None));
 
-// Current PWM value (for display)
+// Telemetry values (set in TIM4, read in TIM3 for display)
 static G_PWM_VAL: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
-// Current fused angle (for display)
 static G_ANGLE: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
+static G_RAW_ANGLE: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
+static G_GYRO_RATE: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
 
 #[entry]
 fn main() -> ! {
@@ -127,7 +128,7 @@ fn main() -> ! {
 
     // ======================= init timers ====================//
     // TIM3: Display update at 100ms
-    init_timer_int(&mut timer, 100);
+    init_timer_int(&mut timer, 10);
     // TIM4: Control loop at 10ms (100Hz)
     let control_timer = init_control_timer(dp_tim4, &clocks);
 
@@ -188,9 +189,11 @@ fn TIM4() {
         let accel_angle_deg = acc_ang.x * 57.3; // Convert to degrees
         let (angle, output) = controller.update(accel_angle_deg, gyro.x);
 
-        // Store values for display
+        // Store all values for display (TIM3 reads these, no separate I2C needed)
         *G_PWM_VAL.borrow(cs).borrow_mut() = output;
         *G_ANGLE.borrow(cs).borrow_mut() = angle;
+        *G_RAW_ANGLE.borrow(cs).borrow_mut() = accel_angle_deg;
+        *G_GYRO_RATE.borrow(cs).borrow_mut() = gyro.x;
 
         // Safety check - stop if robot has fallen
         if !controller.is_safe(MAX_SAFE_ANGLE) {
@@ -209,6 +212,7 @@ fn TIM4() {
 }
 
 /// TIM3 Interrupt: Display Update at 10Hz
+/// Only reads globals set by TIM4 — no I2C access needed here.
 #[interrupt]
 fn TIM3() {
     cortex_m::interrupt::free(|cs| {
@@ -218,42 +222,32 @@ fn TIM3() {
         let mut display_ref = G_DISP.borrow(cs).borrow_mut();
         let d = display_ref.deref_mut().as_mut().unwrap();
 
-        let mut mpu_ref = G_MPU.borrow(cs).borrow_mut();
-        let mpu = mpu_ref.deref_mut().as_mut().unwrap();
-
-        // Read current sensor values for display
-        let acc_ang = mpu.get_acc_angles().unwrap();
-        let gyro = mpu.get_gyro().unwrap();
-
-        // Get computed values from controller
-        let pwm_val = *G_PWM_VAL.borrow(cs).borrow();
+        // All values come from TIM4's last cycle — consistent snapshot
         let fused_angle = *G_ANGLE.borrow(cs).borrow();
+        let raw_angle = *G_RAW_ANGLE.borrow(cs).borrow();
+        let gyro_rate = *G_GYRO_RATE.borrow(cs).borrow();
+        let pwm_val = *G_PWM_VAL.borrow(cs).borrow();
 
-        // Display fused angle (from complementary filter)
         let mut line = String::<16>::new();
         write!(&mut line, "Ang: {:.1}", fused_angle).unwrap();
         d.set_position(0, 0).unwrap();
         d.write_str(&line).unwrap();
 
-        // Display raw accelerometer angle for comparison
         line.clear();
-        write!(&mut line, "Raw: {:.1}", acc_ang.x * 57.3).unwrap();
+        write!(&mut line, "Raw: {:.1}", raw_angle).unwrap();
         d.set_position(0, 1).unwrap();
         d.write_str(&line).unwrap();
 
-        // Display gyro rate
         line.clear();
-        write!(&mut line, "Gyr: {:.1}", gyro.x).unwrap();
+        write!(&mut line, "Gyr: {:.1}", gyro_rate).unwrap();
         d.set_position(0, 2).unwrap();
         d.write_str(&line).unwrap();
 
-        // Display PWM output
         line.clear();
         write!(&mut line, "PWM: {:.0}", pwm_val).unwrap();
         d.set_position(0, 3).unwrap();
         d.write_str(&line).unwrap();
 
-        // Display controller state
         let controller_ref = G_CONTROLLER.borrow(cs).borrow();
         if let Some(ctrl) = controller_ref.as_ref() {
             line.clear();
