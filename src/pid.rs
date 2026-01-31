@@ -59,8 +59,8 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 1100.0,
-            ki: 0.5, // 0.0
+            kp: 1000.0,
+            ki: 0.0, // 0.0
             kd: 4.0, // 4.0
             center_gravity,
             integral: 0.0,
@@ -150,12 +150,13 @@ impl Controller {
         }
     }
 
-    /// Full update cycle: read sensors, filter, compute PD
-    /// Returns (filtered_angle, pwm_output)
+    /// Full update cycle: read sensors, filter, compute PD + velocity PI
+    /// Returns (filtered_angle, total_pwm_output)
     ///
     /// acc_z, acc_y: accelerometer values (g units or raw — atan2 works either way)
     /// gyro_x: gyroscope X rate (deg/s)
-    pub fn update(&mut self, acc_z: f32, acc_y: f32, gyro_x: f32) -> (f32, f32) {
+    /// encoder: encoder counts since last sample (velocity)
+    pub fn update(&mut self, acc_z: f32, acc_y: f32, gyro_x: f32, encoder: i16) -> (f32, f32) {
         // Compute accelerometer angle: atan2(acc_z, acc_y) * 180/PI
         let accel_ang = accel_angle(acc_z, acc_y);
 
@@ -169,11 +170,11 @@ impl Controller {
         // Balance PD controller
         let balance_pwm = self.balance.compute(angle, gyro_rate);
 
-        // Velocity PI (pass 0 encoder if no encoder available)
-        // let velocity_pwm = self.velocity.compute(encoder);
-        // let pwm = balance_pwm + velocity_pwm;
+        // Velocity PI controller
+        let velocity_pwm = self.velocity.compute(encoder as f32);
+        let total_pwm = balance_pwm + velocity_pwm;
 
-        (angle, balance_pwm)
+        (angle, total_pwm)
     }
 
     /// Reset all controller state

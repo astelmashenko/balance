@@ -3,14 +3,15 @@ use ssd1306::{mode::TerminalMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use stm32f1xx_hal::{
     afio::{self, MAPR},
     gpio::{
-        gpioa::{self},
-        gpiob, gpioc, Alternate, OpenDrain, Pin,
+        gpioa::{self, PA8, PA9},
+        gpiob, gpioc, Alternate, Input, OpenDrain, Pin,
     },
     i2c::{self, BlockingI2c},
     pac::{self, interrupt, I2C1, TIM1, TIM2, TIM3, TIM4},
     prelude::*,
+    qei::{Qei, QeiOptions},
     rcc::Clocks,
-    timer::{Counter, CounterMs, Event},
+    timer::{Counter, CounterMs, Event, Tim1NoRemap, Timer},
 };
 
 type BScl = Pin<'B', 8, Alternate<OpenDrain>>;
@@ -130,4 +131,17 @@ pub fn init_control_timer(tim4: TIM4, clocks: &Clocks) -> CounterMs<TIM4> {
     }
 
     timer
+}
+
+pub type QeiType = Qei<TIM1, Tim1NoRemap, (PA8<Input>, PA9<Input>)>;
+
+/// Configure TIM1 in quadrature encoder mode on PA8 (CH1) / PA9 (CH2)
+pub fn init_encoder(
+    tim1: TIM1,
+    pa8: PA8<Input>,
+    pa9: PA9<Input>,
+    mapr: &mut MAPR,
+    clocks: &Clocks,
+) -> QeiType {
+    Timer::new(tim1, clocks).qei((pa8, pa9), mapr, QeiOptions::default())
 }

@@ -5,7 +5,9 @@
 pub mod aux;
 pub mod pid;
 
-use aux::{init_control_timer, init_devices, init_display, init_i2c, init_timer_int};
+use aux::{
+    init_control_timer, init_devices, init_display, init_encoder, init_i2c, init_timer_int, QeiType,
+};
 use heapless::String;
 use pid::{Controller, MAX_SAFE_ANGLE};
 
@@ -28,7 +30,7 @@ use stm32f1xx_hal::{
 };
 
 type LedPin = gpio::PC13<Output<PushPull>>;
-type BreakPin = gpio::PA8<Output<PushPull>>;
+type BreakPin = gpio::PA3<Output<PushPull>>;
 type DirPin = gpio::PA2<Output<PushPull>>;
 type BScl = Pin<'B', 8, Alternate<OpenDrain>>;
 type BSda = Pin<'B', 9, Alternate<OpenDrain>>;
@@ -58,10 +60,14 @@ static G_PWM_CH: Mutex<RefCell<Option<Pwm2Channel>>> = Mutex::new(RefCell::new(N
 // Controller
 static G_CTRL: Mutex<RefCell<Option<Controller>>> = Mutex::new(RefCell::new(None));
 
+// Encoder QEI
+static G_QEI: Mutex<RefCell<Option<QeiType>>> = Mutex::new(RefCell::new(None));
+
 // Telemetry (set in TIM4, read in TIM3 — all from same control cycle)
 static G_ANGLE: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
 static G_GYRO: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
 static G_PWM_OUT: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
+static G_ENCODER: Mutex<RefCell<i16>> = Mutex::new(RefCell::new(0));
 
 /// Default center of gravity angle in degrees
 /// Original default: 88.9 — adjust for your hardware
@@ -86,7 +92,7 @@ fn main() -> ! {
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // ======================= init break/dir pin ==================================//
-    let mut p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
+    let mut p_break = gpioa.pa3.into_push_pull_output(&mut gpioa.crl);
     m_stop(&mut p_break); // Start with motor stopped
 
     let p_dir = gpioa.pa2.into_push_pull_output(&mut gpioa.crl);
@@ -120,6 +126,15 @@ fn main() -> ! {
     mpu.set_accel_range(device::AccelRange::G4).unwrap();
     mpu.set_gyro_range(device::GyroRange::D1000).unwrap();
 
+    // ======================= init encoder (TIM1 QEI on PA8/PA9) ================//
+    let mut pina1_enc_ctrl = gpioa.pa1.into_push_pull_output(&mut gpioa.crl);
+    pina1_enc_ctrl.set_high();
+    // Release TIM1 from delay use, then configure as quadrature encoder
+    let tim1 = delay.release().release();
+    let enc_a = gpioa.pa8; // PA8 default mode is Input<Floating>
+    let enc_b = gpioa.pa9; // PA9 default mode is Input<Floating>
+    let qei = init_encoder(tim1, enc_a, enc_b, &mut afio.mapr, &clocks);
+
     // ======================= init controller ====================================//
     // Seed filter angle from accelerometer reading
     let acc = mpu.get_acc().unwrap();
@@ -145,6 +160,7 @@ fn main() -> ! {
         G_DIR.borrow(cs).replace(Some(p_dir));
         G_PWM_CH.borrow(cs).replace(Some(pwm_ch));
         G_CTRL.borrow(cs).replace(Some(controller));
+        G_QEI.borrow(cs).replace(Some(qei));
     });
 
     // Main loop — control runs in TIM4 interrupt
@@ -158,6 +174,10 @@ fn main() -> ! {
 /// Matches original TIM1_UP_IRQHandler
 #[interrupt]
 fn TIM4() {
+    use core::sync::atomic::{AtomicU16, Ordering};
+    // Track previous encoder count to compute delta each cycle
+    static LAST_ENC: AtomicU16 = AtomicU16::new(0);
+
     cortex_m::interrupt::free(|cs| {
         let mut timer_ref = G_CONTROL_TIM.borrow(cs).borrow_mut();
         let timer = timer_ref.deref_mut().as_mut().unwrap();
@@ -180,18 +200,25 @@ fn TIM4() {
         let mut led_ref = G_LED.borrow(cs).borrow_mut();
         let led = led_ref.deref_mut().as_mut().unwrap();
 
+        // Read encoder: compute delta since last sample (wrapping subtraction)
+        let raw_count = unsafe { (*pac::TIM1::ptr()).cnt.read().cnt().bits() };
+        let delta = raw_count.wrapping_sub(LAST_ENC.load(Ordering::Relaxed)) as i16;
+        LAST_ENC.store(raw_count, Ordering::Relaxed);
+        let encoder = -delta; // Negate to match original: Encoder_x = -Read_Encoder(2)
+
         // Read raw sensor data
         // get_acc() returns g-scaled values, get_gyro() returns deg/s-scaled values
         let acc = mpu.get_acc().unwrap();
         let gyro = mpu.get_gyro().unwrap();
 
-        // Controller update: computes angle via atan2(acc_z, acc_y), filters, PD
-        let (angle, balance_pwm) = ctrl.update(acc.z, acc.y, gyro.x);
+        // Controller update: computes angle, filters, PD + velocity PI
+        let (angle, total_pwm) = ctrl.update(acc.z, acc.y, gyro.x, encoder);
 
         // Store telemetry for display
         *G_ANGLE.borrow(cs).borrow_mut() = angle;
         *G_GYRO.borrow(cs).borrow_mut() = ctrl.gyro_raw;
-        *G_PWM_OUT.borrow(cs).borrow_mut() = balance_pwm;
+        *G_PWM_OUT.borrow(cs).borrow_mut() = total_pwm;
+        *G_ENCODER.borrow(cs).borrow_mut() = encoder;
 
         // Safety: stop if fallen
         if angle.abs() - ctrl.balance.center_gravity > MAX_SAFE_ANGLE {
@@ -203,9 +230,9 @@ fn TIM4() {
             return;
         }
 
-        // Apply motor output
+        // Apply motor output (balance + velocity combined)
         let max_duty = pwm.get_max_duty();
-        apply_motor(pwm, dir, brake, led, balance_pwm, max_duty);
+        apply_motor(pwm, dir, brake, led, total_pwm, max_duty);
 
         timer.clear_interrupt(Event::Update);
     });
@@ -225,13 +252,14 @@ fn TIM3() {
         let angle = *G_ANGLE.borrow(cs).borrow();
         let gyro = *G_GYRO.borrow(cs).borrow();
         let pwm_out = *G_PWM_OUT.borrow(cs).borrow();
+        let encoder = *G_ENCODER.borrow(cs).borrow();
 
         let mut line = String::<16>::new();
 
-        // Row 0: V_Wheel (no encoder)
-        // write!(&mut line, "V_Wheel: 0").unwrap();
-        // d.set_position(0, 0).unwrap();
-        // d.write_str(&line).unwrap();
+        // Row 0: V_Wheel (encoder velocity)
+        write!(&mut line, "V_Wheel: {}", encoder).unwrap();
+        d.set_position(0, 0).unwrap();
+        d.write_str(&line).unwrap();
 
         // Row 1: PWM output (instead of battery voltage)
         line.clear();
