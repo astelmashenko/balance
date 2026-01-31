@@ -59,11 +59,11 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 450.0,
-            kd: 4.0,
+            kp: 1100.0,
+            ki: 0.5, // 0.0
+            kd: 4.0, // 4.0
             center_gravity,
             integral: 0.0,
-            ki: 0.0, // Disabled in original
             integral_limit: 30000.0,
         }
     }
@@ -183,7 +183,7 @@ impl Controller {
     }
 }
 
-/// PWM output limit (original: 7199, our hardware max_duty)
+/// PWM output limit
 pub const MAX_SAFE_ANGLE: f32 = 45.0;
 
 #[inline]

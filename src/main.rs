@@ -65,7 +65,7 @@ static G_PWM_OUT: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
 
 /// Default center of gravity angle in degrees
 /// Original default: 88.9 — adjust for your hardware
-const CENTER_GRAVITY_DEFAULT: f32 = 88.9;
+const CENTER_GRAVITY_DEFAULT: f32 = 87.5;
 
 #[entry]
 fn main() -> ! {
@@ -229,9 +229,9 @@ fn TIM3() {
         let mut line = String::<16>::new();
 
         // Row 0: V_Wheel (no encoder)
-        write!(&mut line, "V_Wheel: 0").unwrap();
-        d.set_position(0, 0).unwrap();
-        d.write_str(&line).unwrap();
+        // write!(&mut line, "V_Wheel: 0").unwrap();
+        // d.set_position(0, 0).unwrap();
+        // d.write_str(&line).unwrap();
 
         // Row 1: PWM output (instead of battery voltage)
         line.clear();
@@ -251,11 +251,11 @@ fn TIM3() {
         d.set_position(0, 3).unwrap();
         d.write_str(&line).unwrap();
 
-        // Row 4: State
-        line.clear();
-        write!(&mut line, "State: 0").unwrap();
-        d.set_position(0, 4).unwrap();
-        d.write_str(&line).unwrap();
+        // // Row 4: State
+        // line.clear();
+        // write!(&mut line, "State: 0").unwrap();
+        // d.set_position(0, 4).unwrap();
+        // d.write_str(&line).unwrap();
 
         // Row 5: Cen_G (center gravity)
         let ctrl_ref = G_CTRL.borrow(cs).borrow();
@@ -266,14 +266,19 @@ fn TIM3() {
             d.write_str(&line).unwrap();
 
             // Row 6: Cen_SET
-            line.clear();
-            write!(&mut line, "Cen_SET: {:.1}", CENTER_GRAVITY_DEFAULT).unwrap();
-            d.set_position(0, 6).unwrap();
-            d.write_str(&line).unwrap();
+            // line.clear();
+            // write!(&mut line, "Cen_SET: {:.1}", CENTER_GRAVITY_DEFAULT).unwrap();
+            // d.set_position(0, 6).unwrap();
+            // d.write_str(&line).unwrap();
 
             // Row 7: Kp/Kd gains for tuning reference
             line.clear();
-            write!(&mut line, "Kp:{:.0} Kd:{:.0}", ctrl.balance.kp, ctrl.balance.kd).unwrap();
+            write!(
+                &mut line,
+                "Kp:{:.0} i:{:.0} d:{:.0}",
+                ctrl.balance.kp, ctrl.balance.ki, ctrl.balance.kd
+            )
+            .unwrap();
             d.set_position(0, 7).unwrap();
             d.write_str(&line).unwrap();
         }
