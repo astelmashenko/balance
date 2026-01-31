@@ -130,7 +130,10 @@ fn main() -> ! {
     let mut controller = BalanceController::new();
     controller.angle_est.angle = initial_angle;
     // balast is slightly tilted
-    controller.config.setpoint = 3.0;
+    controller.config.setpoint = 1.0;
+    controller.config.kp = 50.0;
+    controller.config.ki = 0.3;
+    controller.config.kd = 0.8;
 
     // ======================= init timers ====================//
     // TIM3: Display update at 100ms
@@ -307,7 +310,8 @@ fn apply_motor_output(
     }
 
     // Apply duty cycle and release brake
-    brake.set_low();
+    // brake.set_low();
+    m_start(brake);
     pwm.set_duty(duty);
 }
 
