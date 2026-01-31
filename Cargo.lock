@@ -31,6 +31,7 @@ dependencies = [
  "cortex-m-rt",
  "embedded-hal 1.0.0",
  "heapless",
+ "libm",
  "mpu6050",
  "panic-halt",
  "shared-bus-rtic",

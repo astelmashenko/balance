@@ -7,7 +7,7 @@ pub mod pid;
 
 use aux::{init_control_timer, init_devices, init_display, init_i2c, init_timer_int};
 use heapless::String;
-use pid::{BalanceController, MAX_SAFE_ANGLE};
+use pid::{Controller, MAX_SAFE_ANGLE};
 
 use core::{fmt::Write, ops::DerefMut};
 use cortex_m_rt::{entry, exception, ExceptionFrame};
@@ -38,7 +38,7 @@ type I2cDisplay =
 type I2cMpu6050 = Mpu6050<SharedBus<BlockingI2cPB89>>;
 type Pwm2Channel = PwmChannel<pac::TIM2, 0>;
 
-// Display update timer (TIM3 at 100ms)
+// Display update timer (TIM3)
 static G_TIM: Mutex<RefCell<Option<CounterMs<TIM3>>>> = Mutex::new(RefCell::new(None));
 // Control loop timer (TIM4 at 10ms = 100Hz)
 static G_CONTROL_TIM: Mutex<RefCell<Option<CounterMs<TIM4>>>> = Mutex::new(RefCell::new(None));
@@ -55,14 +55,17 @@ static G_MPU: Mutex<RefCell<Option<I2cMpu6050>>> = Mutex::new(RefCell::new(None)
 // PWM channel for motor control
 static G_PWM_CH: Mutex<RefCell<Option<Pwm2Channel>>> = Mutex::new(RefCell::new(None));
 
-// PID controller
-static G_CONTROLLER: Mutex<RefCell<Option<BalanceController>>> = Mutex::new(RefCell::new(None));
+// Controller
+static G_CTRL: Mutex<RefCell<Option<Controller>>> = Mutex::new(RefCell::new(None));
 
-// Telemetry values (set in TIM4, read in TIM3 for display)
-static G_PWM_VAL: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
+// Telemetry (set in TIM4, read in TIM3 — all from same control cycle)
 static G_ANGLE: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
-static G_RAW_ANGLE: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
-static G_GYRO_RATE: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
+static G_GYRO: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
+static G_PWM_OUT: Mutex<RefCell<f32>> = Mutex::new(RefCell::new(0.0));
+
+/// Default center of gravity angle in degrees
+/// Original default: 88.9 — adjust for your hardware
+const CENTER_GRAVITY_DEFAULT: f32 = 88.9;
 
 #[entry]
 fn main() -> ! {
@@ -82,7 +85,7 @@ fn main() -> ! {
     // ======================= init led pin ========================================//
     let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
-    // ======================= init break/dir pin ========================================//
+    // ======================= init break/dir pin ==================================//
     let mut p_break = gpioa.pa8.into_push_pull_output(&mut gpioa.crh);
     m_stop(&mut p_break); // Start with motor stopped
 
@@ -94,54 +97,44 @@ fn main() -> ! {
     let mut pwm2 = Timer2::new(dp_tim2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(
         pina0_pwm,
         &mut afio.mapr,
-        20.kHz(),
+        10.kHz(), // 10 kHz matching original
     );
-    let max_duty = pwm2.get_max_duty();
-    pwm2.set_duty(Channel::C1, 0); // Start with 0 duty
+    pwm2.set_duty(Channel::C1, 0);
     pwm2.enable(Channel::C1);
 
-    // Split the PWM into channels to get the channel handle
     let pwm_ch = pwm2.split();
 
-    // ======================= init i2c over pb8/pb9 as scl/sda ====================//
+    // ======================= init i2c ===========================================//
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
-
     let i2c_sbus = init_i2c(scl, sda, dp_i2c1, &mut afio.mapr, clocks);
 
-    // ======================= init i2c display ====================//
-    let mut display = init_display(i2c_sbus);
+    // ======================= init display =======================================//
+    let display = init_display(i2c_sbus);
 
-    let mut txt = String::<16>::new();
-    display.set_position(0, 7).unwrap();
-    write!(&mut txt, "PID max:{}", max_duty).unwrap();
-    display.write_str(&txt).unwrap();
-
-    // ======================= init mpu6050 over i2c ====================//
+    // ======================= init MPU6500 =======================================//
     let mut mpu = Mpu6050::new(i2c_sbus.acquire());
     let mut delay = dp_tim1.delay_ms(&clocks);
     mpu.init(&mut delay).unwrap();
-    mpu.set_accel_hpf(device::ACCEL_HPF::_1P25).unwrap();
+    // Configure to match original: ±4g accel, ±1000dps gyro
+    mpu.set_accel_range(device::AccelRange::G4).unwrap();
+    mpu.set_gyro_range(device::GyroRange::D1000).unwrap();
 
-    // ======================= init PID controller ====================//
-    // Seed angle estimator with current accelerometer reading to avoid cold-start lag
-    let acc_ang = mpu.get_acc_angles().unwrap();
-    let initial_angle = acc_ang.x * 57.3;
-    let mut controller = BalanceController::new();
-    controller.angle_est.angle = initial_angle;
-    // balast is slightly tilted
-    controller.config.setpoint = 1.0;
-    controller.config.kp = 50.0;
-    controller.config.ki = 0.3;
-    controller.config.kd = 0.8;
+    // ======================= init controller ====================================//
+    // Seed filter angle from accelerometer reading
+    let acc = mpu.get_acc().unwrap();
+    let initial_angle = pid::accel_angle(acc.z, acc.y);
 
-    // ======================= init timers ====================//
-    // TIM3: Display update at 100ms
-    init_timer_int(&mut timer, 10);
-    // TIM4: Control loop at 10ms (100Hz)
+    let mut controller = Controller::new(CENTER_GRAVITY_DEFAULT);
+    controller.filter.angle = initial_angle;
+
+    // ======================= init timers ========================================//
+    // TIM3: Display update
+    init_timer_int(&mut timer, 100);
+    // TIM4: Control loop at 10ms (100Hz) matching original
     let control_timer = init_control_timer(dp_tim4, &clocks);
 
-    // ======================= store globals ====================//
+    // ======================= store globals ======================================//
     cortex_m::interrupt::free(|cs| {
         G_DISP.borrow(cs).replace(Some(display));
         G_MPU.borrow(cs).replace(Some(mpu));
@@ -151,30 +144,29 @@ fn main() -> ! {
         G_BREAK.borrow(cs).replace(Some(p_break));
         G_DIR.borrow(cs).replace(Some(p_dir));
         G_PWM_CH.borrow(cs).replace(Some(pwm_ch));
-        G_CONTROLLER.borrow(cs).replace(Some(controller));
+        G_CTRL.borrow(cs).replace(Some(controller));
     });
 
-    // Main loop - just sleep, control happens in TIM4 interrupt
+    // Main loop — control runs in TIM4 interrupt
     #[allow(clippy::empty_loop)]
     loop {
         cortex_m::asm::wfi();
     }
 }
 
-/// TIM4 Interrupt: PID Control Loop at 100Hz
+/// TIM4 Interrupt: Control Loop at 100Hz
+/// Matches original TIM1_UP_IRQHandler
 #[interrupt]
 fn TIM4() {
     cortex_m::interrupt::free(|cs| {
-        // Get timer and clear interrupt
         let mut timer_ref = G_CONTROL_TIM.borrow(cs).borrow_mut();
         let timer = timer_ref.deref_mut().as_mut().unwrap();
 
-        // Get peripherals
         let mut mpu_ref = G_MPU.borrow(cs).borrow_mut();
         let mpu = mpu_ref.deref_mut().as_mut().unwrap();
 
-        let mut controller_ref = G_CONTROLLER.borrow(cs).borrow_mut();
-        let controller = controller_ref.deref_mut().as_mut().unwrap();
+        let mut ctrl_ref = G_CTRL.borrow(cs).borrow_mut();
+        let ctrl = ctrl_ref.deref_mut().as_mut().unwrap();
 
         let mut pwm_ref = G_PWM_CH.borrow(cs).borrow_mut();
         let pwm = pwm_ref.deref_mut().as_mut().unwrap();
@@ -188,40 +180,39 @@ fn TIM4() {
         let mut led_ref = G_LED.borrow(cs).borrow_mut();
         let led = led_ref.deref_mut().as_mut().unwrap();
 
-        // Read sensor data
-        // Note: Using X axis for balance angle - adjust if your MPU orientation differs
-        let acc_ang = mpu.get_acc_angles().unwrap();
+        // Read raw sensor data
+        // get_acc() returns g-scaled values, get_gyro() returns deg/s-scaled values
+        let acc = mpu.get_acc().unwrap();
         let gyro = mpu.get_gyro().unwrap();
 
-        // Update angle estimate and compute PID output
-        // acc_ang.x is in radians from mpu6050 crate, gyro.x is in deg/s
-        let accel_angle_deg = acc_ang.x * 57.3; // Convert to degrees
-        let (angle, output) = controller.update(accel_angle_deg, gyro.x);
+        // Controller update: computes angle via atan2(acc_z, acc_y), filters, PD
+        let (angle, balance_pwm) = ctrl.update(acc.z, acc.y, gyro.x);
 
-        // Store all values for display (TIM3 reads these, no separate I2C needed)
-        *G_PWM_VAL.borrow(cs).borrow_mut() = output;
+        // Store telemetry for display
         *G_ANGLE.borrow(cs).borrow_mut() = angle;
-        *G_RAW_ANGLE.borrow(cs).borrow_mut() = accel_angle_deg;
-        *G_GYRO_RATE.borrow(cs).borrow_mut() = gyro.x;
+        *G_GYRO.borrow(cs).borrow_mut() = ctrl.gyro_raw;
+        *G_PWM_OUT.borrow(cs).borrow_mut() = balance_pwm;
 
-        // Safety check - stop if robot has fallen
-        if !controller.is_safe(MAX_SAFE_ANGLE) {
+        // Safety: stop if fallen
+        if angle.abs() - ctrl.balance.center_gravity > MAX_SAFE_ANGLE {
             m_stop(brake);
-            controller.reset();
-            led.set_high(); // LED on = fallen
+            pwm.set_duty(0);
+            ctrl.reset();
+            led.set_high();
             timer.clear_interrupt(Event::Update);
             return;
         }
 
         // Apply motor output
-        apply_motor_output(pwm, dir, brake, led, output);
+        let max_duty = pwm.get_max_duty();
+        apply_motor(pwm, dir, brake, led, balance_pwm, max_duty);
 
         timer.clear_interrupt(Event::Update);
     });
 }
 
-/// TIM3 Interrupt: Display Update at 10Hz
-/// Only reads globals set by TIM4 — no I2C access needed here.
+/// TIM3 Interrupt: Display Update
+/// Matches original show.c display layout
 #[interrupt]
 fn TIM3() {
     cortex_m::interrupt::free(|cs| {
@@ -231,47 +222,59 @@ fn TIM3() {
         let mut display_ref = G_DISP.borrow(cs).borrow_mut();
         let d = display_ref.deref_mut().as_mut().unwrap();
 
-        // All values come from TIM4's last cycle — consistent snapshot
-        let fused_angle = *G_ANGLE.borrow(cs).borrow();
-        let raw_angle = *G_RAW_ANGLE.borrow(cs).borrow();
-        let gyro_rate = *G_GYRO_RATE.borrow(cs).borrow();
-        let pwm_val = *G_PWM_VAL.borrow(cs).borrow();
+        let angle = *G_ANGLE.borrow(cs).borrow();
+        let gyro = *G_GYRO.borrow(cs).borrow();
+        let pwm_out = *G_PWM_OUT.borrow(cs).borrow();
 
         let mut line = String::<16>::new();
-        write!(&mut line, "Ang: {:.1}", fused_angle).unwrap();
+
+        // Row 0: V_Wheel (no encoder)
+        write!(&mut line, "V_Wheel: 0").unwrap();
         d.set_position(0, 0).unwrap();
         d.write_str(&line).unwrap();
 
+        // Row 1: PWM output (instead of battery voltage)
         line.clear();
-        write!(&mut line, "Raw: {:.1}", raw_angle).unwrap();
+        write!(&mut line, "PWM: {:.0}", pwm_out).unwrap();
         d.set_position(0, 1).unwrap();
         d.write_str(&line).unwrap();
 
+        // Row 2: Gyr_Rol (gyro roll rate)
         line.clear();
-        write!(&mut line, "Gyr: {:.1}", gyro_rate).unwrap();
+        write!(&mut line, "Gyr_Rol: {:.0}", gyro).unwrap();
         d.set_position(0, 2).unwrap();
         d.write_str(&line).unwrap();
 
+        // Row 3: Rol (filtered roll angle)
         line.clear();
-        write!(&mut line, "PWM: {:.0}", pwm_val).unwrap();
+        write!(&mut line, "Rol: {:.1} deg", angle).unwrap();
         d.set_position(0, 3).unwrap();
         d.write_str(&line).unwrap();
 
-        let controller_ref = G_CONTROLLER.borrow(cs).borrow();
-        if let Some(ctrl) = controller_ref.as_ref() {
+        // Row 4: State
+        line.clear();
+        write!(&mut line, "State: 0").unwrap();
+        d.set_position(0, 4).unwrap();
+        d.write_str(&line).unwrap();
+
+        // Row 5: Cen_G (center gravity)
+        let ctrl_ref = G_CTRL.borrow(cs).borrow();
+        if let Some(ctrl) = ctrl_ref.as_ref() {
             line.clear();
-            write!(&mut line, "I: {:.1}", ctrl.state.integral).unwrap();
-            d.set_position(0, 4).unwrap();
+            write!(&mut line, "Cen_G: {:.1}", ctrl.balance.center_gravity).unwrap();
+            d.set_position(0, 5).unwrap();
             d.write_str(&line).unwrap();
 
+            // Row 6: Cen_SET
             line.clear();
-            write!(
-                &mut line,
-                "Kp:{:.0} Ki:{:.1}",
-                ctrl.config.kp, ctrl.config.ki
-            )
-            .unwrap();
-            d.set_position(0, 5).unwrap();
+            write!(&mut line, "Cen_SET: {:.1}", CENTER_GRAVITY_DEFAULT).unwrap();
+            d.set_position(0, 6).unwrap();
+            d.write_str(&line).unwrap();
+
+            // Row 7: Kp/Kd gains for tuning reference
+            line.clear();
+            write!(&mut line, "Kp:{:.0} Kd:{:.0}", ctrl.balance.kp, ctrl.balance.kd).unwrap();
+            d.set_position(0, 7).unwrap();
             d.write_str(&line).unwrap();
         }
 
@@ -279,19 +282,21 @@ fn TIM3() {
     });
 }
 
-/// Apply PID output to motor hardware
-fn apply_motor_output(
+/// Apply motor output matching original Set_Pwm logic
+/// Original: DIR = (motox < 0) ? 0 : 1; PWM = 7199 - |motox|
+fn apply_motor(
     pwm: &mut Pwm2Channel,
     dir: &mut DirPin,
     brake: &mut BreakPin,
     led: &mut LedPin,
     output: f32,
+    max_duty: u16,
 ) {
-    // Get max duty cycle from PWM
-    let max_duty = pwm.get_max_duty();
+    // Clamp output to max_duty range
+    let clamped = pid::clamp(output, -(max_duty as f32), max_duty as f32);
 
-    // Set direction based on output sign
-    if output >= 0.0 {
+    // Direction: match original (negative → DIR=0/low, positive → DIR=1/high)
+    if clamped < 0.0 {
         dir.set_low();
         led.set_low();
     } else {
@@ -299,18 +304,11 @@ fn apply_motor_output(
         led.set_high();
     }
 
-    // Map output (-255..255) to duty (0..max_duty)
-    let duty_fraction = output.abs() / 255.0;
-    let mut duty = (duty_fraction * max_duty as f32) as u16;
+    // PWM duty: map |output| to duty cycle
+    // Original uses inverted: PWM = max - |value|
+    // Our hardware uses direct: higher duty = more power
+    let duty = clamped.abs() as u16;
 
-    // Minimum duty threshold - motor won't move below certain PWM
-    const MIN_DUTY_THRESHOLD: u16 = 50;
-    if duty < MIN_DUTY_THRESHOLD && duty > 0 {
-        duty = MIN_DUTY_THRESHOLD;
-    }
-
-    // Apply duty cycle and release brake
-    // brake.set_low();
     m_start(brake);
     pwm.set_duty(duty);
 }

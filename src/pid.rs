@@ -1,221 +1,191 @@
-//! PID Controller for Self-Balancing Robot
+//! PID Controller matching original C balance-triangle implementation
 //!
-//! Implements:
-//! - Complementary filter for angle estimation (gyro + accelerometer fusion)
-//! - Standard PID controller with anti-windup
-//! - Derivative filtering to reduce noise
+//! Architecture:
+//! - Complementary filter: 0.1 * accel_angle + 0.9 * (prev_angle + gyro * 0.003)
+//! - Balance PD: Kp * (angle - center_gravity) + Kd * gyro_rate
+//! - Velocity PI: Kp * filtered_encoder + Ki * integral_encoder (when encoder available)
 
-/// Configuration parameters for PID controller (tunable)
-#[derive(Clone)]
-pub struct PidConfig {
-    /// Proportional gain - response to current error
-    pub kp: f32,
-    /// Integral gain - response to accumulated error
-    pub ki: f32,
-    /// Derivative gain - response to rate of change of error
-    pub kd: f32,
-    /// Target angle in degrees (balance setpoint, usually near 0)
-    pub setpoint: f32,
-    /// Maximum integral accumulation (anti-windup)
-    pub integral_limit: f32,
-    /// Output limit (maps to PWM range)
-    pub output_limit: f32,
-}
+use libm::atan2f;
 
-impl Default for PidConfig {
-    fn default() -> Self {
-        Self {
-            kp: 30.0,      // Start conservative, tune up
-            ki: 0.5,       // Keep low initially
-            kd: 0.8,       // Helps dampen oscillation
-            setpoint: 0.0, // Degrees from vertical
-            integral_limit: 50.0,
-            output_limit: 255.0,
-        }
-    }
-}
-
-/// Runtime state for PID controller
-#[derive(Default)]
-pub struct PidState {
-    /// Accumulated integral term
-    pub integral: f32,
-    /// Previous error (for derivative calculation)
-    pub prev_error: f32,
-    /// Previous derivative (for filtering)
-    pub prev_derivative: f32,
-}
-
-impl PidState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn reset(&mut self) {
-        self.integral = 0.0;
-        self.prev_error = 0.0;
-        self.prev_derivative = 0.0;
-    }
-}
-
-/// Complementary filter for angle estimation from accelerometer and gyroscope
-pub struct AngleEstimator {
-    /// Current estimated angle in degrees
+/// Complementary filter for angle estimation
+/// Matches original filter.c: Yijielvbo_X
+pub struct AngleFilter {
+    /// Filtered angle in degrees
     pub angle: f32,
-    /// Filter coefficient (0.0-1.0, higher = trust gyro more)
-    /// Typical value: 0.98 (98% gyro, 2% accelerometer)
-    pub alpha: f32,
 }
 
-impl Default for AngleEstimator {
-    fn default() -> Self {
-        Self {
-            angle: 0.0,
-            alpha: 0.98,
-        }
-    }
-}
-
-impl AngleEstimator {
-    pub fn new(alpha: f32) -> Self {
-        Self { angle: 0.0, alpha }
+impl AngleFilter {
+    pub fn new() -> Self {
+        Self { angle: 0.0 }
     }
 
-    /// Update angle estimate with new sensor readings
-    ///
-    /// Complementary filter formula:
-    /// angle = alpha * (angle + gyro * dt) + (1 - alpha) * accel_angle
-    ///
-    /// - Gyro integration: good for fast changes, drifts over time
-    /// - Accel angle: good for steady state, noisy during movement
-    ///
-    /// # Arguments
-    /// * `accel_angle` - Angle calculated from accelerometer (degrees)
-    /// * `gyro_rate` - Angular velocity from gyroscope (deg/s)
-    /// * `dt` - Time step in seconds
-    pub fn update(&mut self, accel_angle: f32, gyro_rate: f32, dt: f32) -> f32 {
-        self.angle = self.alpha * (self.angle + gyro_rate * dt) + (1.0 - self.alpha) * accel_angle;
+    /// Update filter with new sensor readings
+    /// Original: Angle = 0.1 * accel_angle + 0.9 * (prev_angle + gyro_rate * 0.003)
+    pub fn update(&mut self, accel_angle: f32, gyro_rate: f32) -> f32 {
+        self.angle = 0.1 * accel_angle + 0.9 * (self.angle + gyro_rate * 0.003);
         self.angle
     }
 }
 
-/// Complete balance controller combining angle estimation and PID
-pub struct BalanceController {
-    pub config: PidConfig,
-    pub state: PidState,
-    pub angle_est: AngleEstimator,
-    /// Control loop period in seconds
-    pub dt: f32,
+/// Compute accelerometer angle from raw acceleration values
+/// Original: atan2(Accel_Z, Accel_Y) * 180 / PI
+/// The mpu6050 crate returns acceleration in g units, which works directly with atan2
+#[inline]
+pub fn accel_angle(acc_z: f32, acc_y: f32) -> f32 {
+    atan2f(acc_z, acc_y) * 57.295_78 // 180 / PI
 }
 
-impl BalanceController {
-    /// Create a new balance controller with default settings for 100Hz loop
+/// Balance PD controller
+/// Matches original control.c: balance_x
+///
+/// Original formula:
+///   balance = Balance_KP * (Angle - Center_Gravity) + Balance_KD * Gyro
+///
+/// This is a PD controller where the derivative term uses the gyroscope
+/// reading directly (not numerical differentiation of the error).
+pub struct BalancePD {
+    pub kp: f32,
+    pub kd: f32,
+    /// Center of gravity angle (balance setpoint in degrees)
+    pub center_gravity: f32,
+    /// Integral accumulator (Ki=0 by default, but available)
+    pub integral: f32,
+    pub ki: f32,
+    /// Anti-windup limit for integral
+    pub integral_limit: f32,
+}
+
+impl BalancePD {
+    /// Create with original default gains
+    pub fn new(center_gravity: f32) -> Self {
+        Self {
+            kp: 450.0,
+            kd: 4.0,
+            center_gravity,
+            integral: 0.0,
+            ki: 0.0, // Disabled in original
+            integral_limit: 30000.0,
+        }
+    }
+
+    /// Compute balance PWM output
+    /// angle: filtered angle from complementary filter (degrees)
+    /// gyro: raw gyroscope rate (deg/s) — used directly as derivative term
+    pub fn compute(&mut self, angle: f32, gyro: f32) -> f32 {
+        let bias = angle - self.center_gravity;
+
+        // Integral with anti-windup (unused when ki=0)
+        self.integral += bias;
+        self.integral = clamp(self.integral, -self.integral_limit, self.integral_limit);
+
+        self.kp * bias + self.ki * self.integral + self.kd * gyro
+    }
+
+    pub fn reset(&mut self) {
+        self.integral = 0.0;
+    }
+}
+
+/// Velocity PI controller (for encoder feedback)
+/// Matches original control.c: velocity_x
+///
+/// Original formula:
+///   filtered_encoder = 0.65 * prev + 0.35 * new
+///   integral += filtered_encoder (clamped ±10000)
+///   velocity_pwm = Position_KP * filtered_encoder + Position_KI * integral
+pub struct VelocityPI {
+    pub kp: f32,
+    pub ki: f32,
+    pub filtered_encoder: f32,
+    pub integral: f32,
+    pub integral_limit: f32,
+}
+
+impl VelocityPI {
     pub fn new() -> Self {
         Self {
-            config: PidConfig::default(),
-            state: PidState::new(),
-            angle_est: AngleEstimator::default(),
-            dt: 0.01, // 100Hz = 10ms
+            kp: -600.0,
+            ki: -0.5,
+            filtered_encoder: 0.0,
+            integral: 0.0,
+            integral_limit: 10000.0,
         }
     }
 
-    /// Create controller with custom configuration
-    pub fn with_config(config: PidConfig, alpha: f32, dt: f32) -> Self {
-        Self {
-            config,
-            state: PidState::new(),
-            angle_est: AngleEstimator::new(alpha),
-            dt,
-        }
+    /// Compute velocity PWM output
+    /// encoder: current encoder reading (counts per sample)
+    pub fn compute(&mut self, encoder: f32) -> f32 {
+        // First-order low-pass filter: 65% old + 35% new
+        self.filtered_encoder = 0.65 * self.filtered_encoder + 0.35 * encoder;
+
+        // Integral with anti-windup
+        self.integral += self.filtered_encoder;
+        self.integral = clamp(self.integral, -self.integral_limit, self.integral_limit);
+
+        self.kp * self.filtered_encoder + self.ki * self.integral
     }
 
-    /// Update angle estimate from sensor readings
-    ///
-    /// # Arguments
-    /// * `accel_angle` - Angle from accelerometer (degrees)
-    /// * `gyro_rate` - Angular velocity from gyroscope (deg/s)
-    ///
-    /// # Returns
-    /// Estimated angle in degrees
-    pub fn update_angle(&mut self, accel_angle: f32, gyro_rate: f32) -> f32 {
-        self.angle_est.update(accel_angle, gyro_rate, self.dt)
-    }
-
-    /// Compute PID output based on current angle
-    ///
-    /// # Returns
-    /// PWM value in range [-output_limit, +output_limit]
-    pub fn compute(&mut self, current_angle: f32) -> f32 {
-        let config = &self.config;
-        let state = &mut self.state;
-
-        // Calculate error (setpoint - measurement)
-        let error = config.setpoint - current_angle;
-
-        // === Proportional Term ===
-        let p_term = config.kp * error;
-
-        // === Integral Term with Anti-Windup ===
-        state.integral += error * self.dt;
-        state.integral = clamp(
-            state.integral,
-            -config.integral_limit,
-            config.integral_limit,
-        );
-        let i_term = config.ki * state.integral;
-
-        // === Derivative Term with filtering ===
-        let raw_derivative = (error - state.prev_error) / self.dt;
-
-        // Low-pass filter on derivative to reduce noise
-        const DERIVATIVE_FILTER_BETA: f32 = 0.7;
-        let filtered_derivative = DERIVATIVE_FILTER_BETA * raw_derivative
-            + (1.0 - DERIVATIVE_FILTER_BETA) * state.prev_derivative;
-
-        let d_term = config.kd * filtered_derivative;
-
-        // Store for next iteration
-        state.prev_error = error;
-        state.prev_derivative = filtered_derivative;
-
-        // === Combine and Limit Output ===
-        let output = p_term + i_term + d_term;
-        clamp(output, -config.output_limit, config.output_limit)
-    }
-
-    /// Combined update: estimate angle and compute PID output
-    ///
-    /// # Arguments
-    /// * `accel_angle` - Angle from accelerometer (degrees)
-    /// * `gyro_rate` - Angular velocity from gyroscope (deg/s)
-    ///
-    /// # Returns
-    /// (estimated_angle, pwm_output)
-    pub fn update(&mut self, accel_angle: f32, gyro_rate: f32) -> (f32, f32) {
-        let angle = self.update_angle(accel_angle, gyro_rate);
-        let output = self.compute(angle);
-        (angle, output)
-    }
-
-    /// Reset controller state (call when robot falls or restarts)
     pub fn reset(&mut self) {
-        self.state.reset();
-        self.angle_est.angle = 0.0;
-    }
-
-    /// Check if angle is within safe operating range
-    pub fn is_safe(&self, max_angle: f32) -> bool {
-        self.angle_est.angle.abs() < max_angle
+        self.filtered_encoder = 0.0;
+        self.integral = 0.0;
     }
 }
 
-impl Default for BalanceController {
-    fn default() -> Self {
-        Self::new()
+/// Complete balance controller combining angle filter + PD + optional velocity PI
+pub struct Controller {
+    pub filter: AngleFilter,
+    pub balance: BalancePD,
+    pub velocity: VelocityPI,
+    /// Raw gyro value for display (Gyro_Balance_x in original)
+    pub gyro_raw: f32,
+}
+
+impl Controller {
+    pub fn new(center_gravity: f32) -> Self {
+        Self {
+            filter: AngleFilter::new(),
+            balance: BalancePD::new(center_gravity),
+            velocity: VelocityPI::new(),
+            gyro_raw: 0.0,
+        }
+    }
+
+    /// Full update cycle: read sensors, filter, compute PD
+    /// Returns (filtered_angle, pwm_output)
+    ///
+    /// acc_z, acc_y: accelerometer values (g units or raw — atan2 works either way)
+    /// gyro_x: gyroscope X rate (deg/s)
+    pub fn update(&mut self, acc_z: f32, acc_y: f32, gyro_x: f32) -> (f32, f32) {
+        // Compute accelerometer angle: atan2(acc_z, acc_y) * 180/PI
+        let accel_ang = accel_angle(acc_z, acc_y);
+
+        // Gyro rate (negated to match original: -Gyro_X)
+        let gyro_rate = -gyro_x;
+        self.gyro_raw = gyro_rate;
+
+        // Complementary filter
+        let angle = self.filter.update(accel_ang, gyro_rate);
+
+        // Balance PD controller
+        let balance_pwm = self.balance.compute(angle, gyro_rate);
+
+        // Velocity PI (pass 0 encoder if no encoder available)
+        // let velocity_pwm = self.velocity.compute(encoder);
+        // let pwm = balance_pwm + velocity_pwm;
+
+        (angle, balance_pwm)
+    }
+
+    /// Reset all controller state
+    pub fn reset(&mut self) {
+        self.balance.reset();
+        self.velocity.reset();
     }
 }
 
-/// Clamp a value to a range
+/// PWM output limit (original: 7199, our hardware max_duty)
+pub const MAX_SAFE_ANGLE: f32 = 45.0;
+
 #[inline]
 pub fn clamp(value: f32, min: f32, max: f32) -> f32 {
     if value > max {
@@ -226,6 +196,3 @@ pub fn clamp(value: f32, min: f32, max: f32) -> f32 {
         value
     }
 }
-
-/// Maximum safe angle before considering the robot has fallen (degrees)
-pub const MAX_SAFE_ANGLE: f32 = 45.0;
