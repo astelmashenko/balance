@@ -25,10 +25,10 @@ pub struct PidConfig {
 impl Default for PidConfig {
     fn default() -> Self {
         Self {
-            kp: 30.0,           // Start conservative, tune up
-            ki: 0.5,            // Keep low initially
-            kd: 0.8,            // Helps dampen oscillation
-            setpoint: 0.0,      // Degrees from vertical
+            kp: 30.0,      // Start conservative, tune up
+            ki: 0.5,       // Keep low initially
+            kd: 0.8,       // Helps dampen oscillation
+            setpoint: 0.0, // Degrees from vertical
             integral_limit: 50.0,
             output_limit: 255.0,
         }
@@ -94,8 +94,7 @@ impl AngleEstimator {
     /// * `gyro_rate` - Angular velocity from gyroscope (deg/s)
     /// * `dt` - Time step in seconds
     pub fn update(&mut self, accel_angle: f32, gyro_rate: f32, dt: f32) -> f32 {
-        self.angle = self.alpha * (self.angle + gyro_rate * dt)
-            + (1.0 - self.alpha) * accel_angle;
+        self.angle = self.alpha * (self.angle + gyro_rate * dt) + (1.0 - self.alpha) * accel_angle;
         self.angle
     }
 }

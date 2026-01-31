@@ -124,7 +124,13 @@ fn main() -> ! {
     mpu.set_accel_hpf(device::ACCEL_HPF::_1P25).unwrap();
 
     // ======================= init PID controller ====================//
-    let controller = BalanceController::new();
+    // Seed angle estimator with current accelerometer reading to avoid cold-start lag
+    let acc_ang = mpu.get_acc_angles().unwrap();
+    let initial_angle = acc_ang.x * 57.3;
+    let mut controller = BalanceController::new();
+    controller.angle_est.angle = initial_angle;
+    // balast is slightly tilted
+    controller.config.setpoint = 3.0;
 
     // ======================= init timers ====================//
     // TIM3: Display update at 100ms
