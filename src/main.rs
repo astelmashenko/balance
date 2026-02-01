@@ -71,7 +71,7 @@ static G_ENCODER: Mutex<RefCell<i16>> = Mutex::new(RefCell::new(0));
 
 /// Default center of gravity angle in degrees
 /// Original default: 88.9 — adjust for your hardware
-const CENTER_GRAVITY_DEFAULT: f32 = 87.5;
+const CENTER_GRAVITY_DEFAULT: f32 = 89.9;
 
 #[entry]
 fn main() -> ! {
@@ -204,7 +204,7 @@ fn TIM4() {
         let raw_count = unsafe { (*pac::TIM1::ptr()).cnt.read().cnt().bits() };
         let delta = raw_count.wrapping_sub(LAST_ENC.load(Ordering::Relaxed)) as i16;
         LAST_ENC.store(raw_count, Ordering::Relaxed);
-        let encoder = -delta; // Negate to match original: Encoder_x = -Read_Encoder(2)
+        let encoder = delta; // Negate to match original: Encoder_x = -Read_Encoder(2)
 
         // Read raw sensor data
         // get_acc() returns g-scaled values, get_gyro() returns deg/s-scaled values
@@ -257,25 +257,25 @@ fn TIM3() {
         let mut line = String::<16>::new();
 
         // Row 0: V_Wheel (encoder velocity)
-        write!(&mut line, "V_Wheel: {}", encoder).unwrap();
+        write!(&mut line, "V_Wheel: {:0>5}", encoder).unwrap();
         d.set_position(0, 0).unwrap();
         d.write_str(&line).unwrap();
 
         // Row 1: PWM output (instead of battery voltage)
         line.clear();
-        write!(&mut line, "PWM: {:.0}", pwm_out).unwrap();
+        write!(&mut line, "PWM: {:7.0}", pwm_out).unwrap();
         d.set_position(0, 1).unwrap();
         d.write_str(&line).unwrap();
 
         // Row 2: Gyr_Rol (gyro roll rate)
         line.clear();
-        write!(&mut line, "Gyr_Rol: {:.0}", gyro).unwrap();
+        write!(&mut line, "Gyr_Rol: {:3.0}", gyro).unwrap();
         d.set_position(0, 2).unwrap();
         d.write_str(&line).unwrap();
 
         // Row 3: Rol (filtered roll angle)
         line.clear();
-        write!(&mut line, "Rol: {:.1} deg", angle).unwrap();
+        write!(&mut line, "Rol: {:3.1} deg", angle).unwrap();
         d.set_position(0, 3).unwrap();
         d.write_str(&line).unwrap();
 
@@ -289,7 +289,7 @@ fn TIM3() {
         let ctrl_ref = G_CTRL.borrow(cs).borrow();
         if let Some(ctrl) = ctrl_ref.as_ref() {
             line.clear();
-            write!(&mut line, "Cen_G: {:.1}", ctrl.balance.center_gravity).unwrap();
+            write!(&mut line, "Cen_G: {:3.1}", ctrl.balance.center_gravity).unwrap();
             d.set_position(0, 5).unwrap();
             d.write_str(&line).unwrap();
 

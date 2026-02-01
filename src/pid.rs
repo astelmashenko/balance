@@ -65,9 +65,9 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 650.0,
-            ki: 0.5, // 0.0
-            kd: 4.0, // 4.0
+            kp: 250.0,
+            ki: 0.0, // 0.0
+            kd: 0.0, // 4.0
             center_gravity,
             integral: 0.0,
             integral_limit: 30000.0,
