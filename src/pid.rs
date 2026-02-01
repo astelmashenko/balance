@@ -67,7 +67,7 @@ impl BalancePD {
         Self {
             kp: 250.0,
             ki: 0.0, // 0.0
-            kd: 0.0, // 4.0
+            kd: 4.0, // 4.0
             center_gravity,
             integral: 0.0,
             integral_limit: 30000.0,
@@ -173,7 +173,8 @@ impl Controller {
         let accel_ang = accel_angle(acc_z, acc_y);
 
         // Gyro rate (negated to match original: -Gyro_X)
-        let gyro_rate = -gyro_x;
+        // mpu6050 crate returns rad/s; convert to deg/s for filter (0.003) and KD gains
+        let gyro_rate = -gyro_x * 57.2958;
         self.gyro_raw = gyro_rate;
 
         // Complementary filter

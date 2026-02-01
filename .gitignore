@@ -2,3 +2,4 @@
 /auxiliary/target
 .gdb_history
 .idea
+.DS_Store
