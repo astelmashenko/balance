@@ -17,7 +17,7 @@ use cortex_m_rt::{entry, exception, ExceptionFrame};
 use core::cell::RefCell;
 use cortex_m::interrupt::Mutex;
 
-use mpu6050::*;
+use mpu6050::{device, Mpu6050};
 use panic_halt as _;
 use shared_bus_rtic::SharedBus;
 use ssd1306::{mode::TerminalMode, prelude::*, Ssd1306};
@@ -122,9 +122,9 @@ fn main() -> ! {
     let mut mpu = Mpu6050::new(i2c_sbus.acquire());
     let mut delay = dp_tim1.delay_ms(&clocks);
     mpu.init(&mut delay).unwrap();
-    // Configure to match original: ±4g accel, ±1000dps gyro
+    // Configure to match original: ±4g accel, ±2000dps gyro
     mpu.set_accel_range(device::AccelRange::G4).unwrap();
-    mpu.set_gyro_range(device::GyroRange::D1000).unwrap();
+    mpu.set_gyro_range(device::GyroRange::D2000).unwrap();
 
     // ======================= init encoder (TIM1 QEI on PA8/PA9) ================//
     let mut pina1_enc_ctrl = gpioa.pa1.into_push_pull_output(&mut gpioa.crl);
@@ -339,11 +339,11 @@ fn apply_motor(
 
     // PWM duty: map |output| to duty cycle
     // Original uses inverted: PWM = max - |value|
-    // Our hardware uses direct: higher duty = more power
     let duty = clamped.abs() as u16;
+    let inverted_duty = max_duty.saturating_sub(duty);
 
     m_start(brake);
-    pwm.set_duty(duty);
+    pwm.set_duty(inverted_duty);
 }
 
 pub fn m_start(p_break: &mut BreakPin) {

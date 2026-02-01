@@ -65,8 +65,8 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 250.0,
-            ki: 0.0, // 0.0
+            kp: 50.0,
+            ki: 0.5, // 0.0
             kd: 4.0, // 4.0
             center_gravity,
             integral: 0.0,
@@ -181,7 +181,11 @@ impl Controller {
         let angle = self.filter.update(accel_ang, gyro_rate);
 
         // Balance PD controller
-        let balance_pwm = self.balance.compute(angle, gyro_rate);
+        // Original passes raw gyro LSBs to the PD controller.
+        // MPU6050 @ 2000dps gives 16.4 LSB/(deg/s).
+        // scale gyro_rate (deg/s) back to LSB approximation for the D-term
+        let gyro_lsb_estimate = gyro_rate * 16.4;
+        let balance_pwm = self.balance.compute(angle, gyro_lsb_estimate);
 
         // Velocity PI controller
         let velocity_pwm = self.velocity.compute(encoder as f32);
