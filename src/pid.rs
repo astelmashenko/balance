@@ -27,6 +27,12 @@ impl AngleFilter {
     }
 }
 
+impl Default for AngleFilter {
+    fn default() -> Self {
+        AngleFilter::new()
+    }
+}
+
 /// Compute accelerometer angle from raw acceleration values
 /// Original: atan2(Accel_Z, Accel_Y) * 180 / PI
 /// The mpu6050 crate returns acceleration in g units, which works directly with atan2
@@ -59,8 +65,8 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 1000.0,
-            ki: 0.0, // 0.0
+            kp: 650.0,
+            ki: 0.5, // 0.0
             kd: 4.0, // 4.0
             center_gravity,
             integral: 0.0,
@@ -128,6 +134,12 @@ impl VelocityPI {
     pub fn reset(&mut self) {
         self.filtered_encoder = 0.0;
         self.integral = 0.0;
+    }
+}
+
+impl Default for VelocityPI {
+    fn default() -> Self {
+        VelocityPI::new()
     }
 }
 
