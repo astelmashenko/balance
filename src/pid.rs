@@ -22,7 +22,7 @@ impl AngleFilter {
     /// Update filter with new sensor readings
     /// Original: Angle = 0.1 * accel_angle + 0.9 * (prev_angle + gyro_rate * 0.003)
     pub fn update(&mut self, accel_angle: f32, gyro_rate: f32) -> f32 {
-        self.angle = 0.1 * accel_angle + 0.9 * (self.angle + gyro_rate * 0.003);
+        self.angle = 0.1 * accel_angle + 0.9 * (self.angle + gyro_rate * 0.01);
         self.angle
     }
 }
@@ -65,9 +65,9 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 50.0,
-            ki: 0.5, // 0.0
-            kd: 4.0, // 4.0
+            kp: 100.0,
+            ki: 0.8,  // 0.0
+            kd: 10.0, // 4.0
             center_gravity,
             integral: 0.0,
             integral_limit: 30000.0,

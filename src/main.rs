@@ -317,6 +317,8 @@ fn TIM3() {
 
 /// Apply motor output matching original Set_Pwm logic
 /// Original: DIR = (motox < 0) ? 0 : 1; PWM = 7199 - |motox|
+/// PID gains are tuned for the original 72MHz timer (max_duty=7199).
+/// Scale output to actual max_duty so the same gains produce equivalent duty%.
 fn apply_motor(
     pwm: &mut Pwm2Channel,
     dir: &mut DirPin,
@@ -325,8 +327,9 @@ fn apply_motor(
     output: f32,
     max_duty: u16,
 ) {
-    // Clamp output to max_duty range
-    let clamped = pid::clamp(output, -(max_duty as f32), max_duty as f32);
+    // Scale from original 7200-count range to actual max_duty
+    let scaled = output * (max_duty as f32) / 7200.0;
+    let clamped = pid::clamp(scaled, -(max_duty as f32), max_duty as f32);
 
     // Direction: match original (negative → DIR=0/low, positive → DIR=1/high)
     if clamped < 0.0 {

@@ -50,6 +50,12 @@ pub fn init_devices() -> (
         .pclk1(6.MHz())
         .freeze(&mut flash.acr);
 
+    // Re-enable flash prefetch buffer — the HAL's freeze() uses write() instead of
+    // modify(), which clears PRFTBE. Without prefetch, 72MHz with 2 wait states can stall.
+    // unsafe {
+    // (*pac::FLASH::ptr()).acr.modify(|_, w| w.prftbe().set_bit());
+    // }
+
     let timer = dp.TIM3.counter_ms(&clocks);
 
     // Acquire the GPIO* peripheral
@@ -78,10 +84,10 @@ pub fn init_i2c(
         },
         clocks,
         // below are different timeouts
-        1000, // start_timeout_us
-        10,   // start_retries
-        1000, // addr_timeout_us
-        1000, // data_timeout_us
+        10000, // start_timeout_us
+        10,    // start_retries
+        10000, // addr_timeout_us
+        10000, // data_timeout_us
     );
 
     let i2c_sbus = shared_bus_rtic::new!(i2c_2, BlockingI2cPB89);
