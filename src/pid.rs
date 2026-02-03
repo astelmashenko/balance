@@ -65,9 +65,9 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 100.0,
-            ki: 0.8,  // 0.0
-            kd: 10.0, // 4.0
+            kp: -1450.0,
+            ki: 0.0, // 0.0
+            kd: 0.0, // 4.0
             center_gravity,
             integral: 0.0,
             integral_limit: 30000.0,
@@ -110,8 +110,8 @@ pub struct VelocityPI {
 impl VelocityPI {
     pub fn new() -> Self {
         Self {
-            kp: -600.0,
-            ki: -0.5,
+            kp: 0.0, //-600
+            ki: 0.0, // -0.5
             filtered_encoder: 0.0,
             integral: 0.0,
             integral_limit: 10000.0,
@@ -188,8 +188,9 @@ impl Controller {
         let balance_pwm = self.balance.compute(angle, gyro_lsb_estimate);
 
         // Velocity PI controller
-        let velocity_pwm = self.velocity.compute(encoder as f32);
-        let total_pwm = balance_pwm + velocity_pwm;
+        // let velocity_pwm = self.velocity.compute(encoder as f32);
+        // let total_pwm = balance_pwm + velocity_pwm;
+        let total_pwm = balance_pwm;
 
         (angle, total_pwm)
     }

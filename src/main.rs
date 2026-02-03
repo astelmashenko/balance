@@ -71,7 +71,7 @@ static G_ENCODER: Mutex<RefCell<i16>> = Mutex::new(RefCell::new(0));
 
 /// Default center of gravity angle in degrees
 /// Original default: 88.9 — adjust for your hardware
-const CENTER_GRAVITY_DEFAULT: f32 = 89.9;
+const CENTER_GRAVITY_DEFAULT: f32 = 89.1;
 
 #[entry]
 fn main() -> ! {
@@ -103,7 +103,7 @@ fn main() -> ! {
     let mut pwm2 = Timer2::new(dp_tim2, &clocks).pwm_hz::<Tim2NoRemap, _, _>(
         pina0_pwm,
         &mut afio.mapr,
-        10.kHz(), // 10 kHz matching original
+        10.kHz(),
     );
     pwm2.set_duty(Channel::C1, 0);
     pwm2.enable(Channel::C1);
@@ -220,10 +220,12 @@ fn TIM4() {
         *G_PWM_OUT.borrow(cs).borrow_mut() = total_pwm;
         *G_ENCODER.borrow(cs).borrow_mut() = encoder;
 
+        let max_duty = pwm.get_max_duty();
+
         // Safety: stop if fallen
-        if angle.abs() - ctrl.balance.center_gravity > MAX_SAFE_ANGLE {
+        if (angle - ctrl.balance.center_gravity).abs() > MAX_SAFE_ANGLE {
             m_stop(brake);
-            pwm.set_duty(0);
+            pwm.set_duty(max_duty); // inverted PWM: max_duty = 0% power
             ctrl.reset();
             led.set_high();
             timer.clear_interrupt(Event::Update);
@@ -231,7 +233,6 @@ fn TIM4() {
         }
 
         // Apply motor output (balance + velocity combined)
-        let max_duty = pwm.get_max_duty();
         apply_motor(pwm, dir, brake, led, total_pwm, max_duty);
 
         timer.clear_interrupt(Event::Update);
