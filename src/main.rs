@@ -295,17 +295,17 @@ fn TIM3() {
             d.write_str(&line).unwrap();
 
             // Row 6: Cen_SET
-            // line.clear();
-            // write!(&mut line, "Cen_SET: {:.1}", CENTER_GRAVITY_DEFAULT).unwrap();
-            // d.set_position(0, 6).unwrap();
-            // d.write_str(&line).unwrap();
+            line.clear();
+            write!(&mut line, "Kp: {:.1}", ctrl.balance.kp).unwrap();
+            d.set_position(0, 6).unwrap();
+            d.write_str(&line).unwrap();
 
             // Row 7: Kp/Kd gains for tuning reference
             line.clear();
             write!(
                 &mut line,
-                "Kp:{:.0} i:{:.0} d:{:.0}",
-                ctrl.balance.kp, ctrl.balance.ki, ctrl.balance.kd
+                "Ki:{:.0} Kd:{:.0}",
+                ctrl.balance.ki, ctrl.balance.kd
             )
             .unwrap();
             d.set_position(0, 7).unwrap();
