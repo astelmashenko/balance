@@ -65,7 +65,7 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 50.0,
+            kp: 600.0,
             ki: 0.0, // 0.0
             kd: 0.0, // 4.0
             center_gravity,
@@ -110,8 +110,8 @@ pub struct VelocityPI {
 impl VelocityPI {
     pub fn new() -> Self {
         Self {
-            kp: 50.0, //-600
-            ki: 0.02, // -0.5
+            kp: 0.0, //-600
+            ki: 0.0, // -0.5
             filtered_encoder: 0.0,
             integral: 0.0,
             integral_limit: 10000.0,
@@ -180,6 +180,17 @@ impl Controller {
         // Complementary filter
         let angle = self.filter.update(accel_ang, gyro_rate);
 
+        // Center gravity self-tuning from encoder velocity
+        // Matches original nomal(): nudge setpoint to oppose sustained drift
+        let enc = encoder as f32;
+        if !(-30.0..=30.0).contains(&enc) {
+            self.balance.center_gravity -= enc.signum() * 0.005;
+        } else if !(-20.0..=20.0).contains(&enc) {
+            self.balance.center_gravity -= enc.signum() * 0.002;
+        } else if !(-10.0..=10.0).contains(&enc) {
+            self.balance.center_gravity -= enc.signum() * 0.001;
+        }
+
         // Balance PD controller
         // Original passes raw gyro LSBs to the PD controller.
         // MPU6050 @ 2000dps gives 16.4 LSB/(deg/s).
@@ -189,9 +200,9 @@ impl Controller {
 
         // Velocity PI controller
         let velocity_pwm = self.velocity.compute(encoder as f32);
-        // let total_pwm = balance_pwm + velocity_pwm;
+        let total_pwm = balance_pwm + velocity_pwm;
         // let total_pwm = velocity_pwm;
-        let total_pwm = balance_pwm;
+        // let total_pwm = balance_pwm;
 
         (angle, total_pwm)
     }

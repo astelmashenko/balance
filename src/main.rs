@@ -9,7 +9,7 @@ use aux::{
     init_control_timer, init_devices, init_display, init_encoder, init_i2c, init_timer_int, QeiType,
 };
 use heapless::String;
-use pid::{Controller, MAX_SAFE_ANGLE};
+use pid::Controller;
 
 use core::{fmt::Write, ops::DerefMut};
 use cortex_m_rt::{entry, exception, ExceptionFrame};
@@ -71,7 +71,7 @@ static G_ENCODER: Mutex<RefCell<i16>> = Mutex::new(RefCell::new(0));
 
 /// Default center of gravity angle in degrees
 /// Original default: 88.9 — adjust for your hardware
-const CENTER_GRAVITY_DEFAULT: f32 = 89.1;
+const CENTER_GRAVITY_DEFAULT: f32 = 89.5;
 
 #[entry]
 fn main() -> ! {
@@ -109,6 +109,8 @@ fn main() -> ! {
     pwm2.enable(Channel::C1);
 
     let pwm_ch = pwm2.split();
+    // pwm_ch.set_duty(1000);
+    // m_start(&mut p_break);
 
     // ======================= init i2c ===========================================//
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
@@ -171,7 +173,6 @@ fn main() -> ! {
 }
 
 /// TIM4 Interrupt: Control Loop at 100Hz
-/// Matches original TIM1_UP_IRQHandler
 #[interrupt]
 fn TIM4() {
     use core::sync::atomic::{AtomicU16, Ordering};
@@ -204,7 +205,7 @@ fn TIM4() {
         let raw_count = unsafe { (*pac::TIM1::ptr()).cnt.read().cnt().bits() };
         let delta = raw_count.wrapping_sub(LAST_ENC.load(Ordering::Relaxed)) as i16;
         LAST_ENC.store(raw_count, Ordering::Relaxed);
-        let encoder = delta; // Negate to match original: Encoder_x = -Read_Encoder(2)
+        let encoder = -delta;
 
         // Read raw sensor data
         // get_acc() returns g-scaled values, get_gyro() returns deg/s-scaled values
@@ -240,7 +241,6 @@ fn TIM4() {
 }
 
 /// TIM3 Interrupt: Display Update
-/// Matches original show.c display layout
 #[interrupt]
 fn TIM3() {
     cortex_m::interrupt::free(|cs| {
@@ -342,21 +342,21 @@ fn apply_motor(
     let scaled = output * (max_duty as f32) / 7200.0;
     let clamped = pid::clamp(scaled, -(max_duty as f32), max_duty as f32);
 
-    // Direction: match original (negative → DIR=0/low, positive → DIR=1/high)
+    // Direction: flipped from original to match hardware wiring
     if clamped < 0.0 {
-        dir.set_low();
-        led.set_low();
-    } else {
         dir.set_high();
         led.set_high();
+    } else {
+        dir.set_low();
+        led.set_low();
     }
 
-    // PWM duty: map |output| to duty cycle
-    // PWM Mode 1 (HAL default): higher CCR = more duty = more power
+    // PWM duty: higher duty = slower motor, so invert to match original
+    // Original: PWM = 7199 - |motox| (large output → small duty → more power)
     let duty = clamped.abs() as u16;
 
     m_start(brake);
-    pwm.set_duty(duty);
+    pwm.set_duty(max_duty.saturating_sub(duty));
 }
 
 pub fn m_start(p_break: &mut BreakPin) {
