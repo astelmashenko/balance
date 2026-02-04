@@ -22,7 +22,7 @@ impl AngleFilter {
     /// Update filter with new sensor readings
     /// Original: Angle = 0.1 * accel_angle + 0.9 * (prev_angle + gyro_rate * 0.003)
     pub fn update(&mut self, accel_angle: f32, gyro_rate: f32) -> f32 {
-        self.angle = 0.05 * accel_angle + 0.95 * (self.angle + gyro_rate * 0.003);
+        self.angle = 0.1 * accel_angle + 0.9 * (self.angle + gyro_rate * 0.005);
         self.angle
     }
 }
@@ -67,7 +67,7 @@ impl BalancePD {
         Self {
             kp: 600.0,
             ki: 0.0, // 0.0
-            kd: 0.0, // 4.0
+            kd: 1.5, // 4.0
             center_gravity,
             integral: 0.0,
             integral_limit: 30000.0,
@@ -110,8 +110,8 @@ pub struct VelocityPI {
 impl VelocityPI {
     pub fn new() -> Self {
         Self {
-            kp: 0.0, //-600
-            ki: 0.0, // -0.5
+            kp: 15.0,  //-600
+            ki: 0.075, // -0.5
             filtered_encoder: 0.0,
             integral: 0.0,
             integral_limit: 10000.0,

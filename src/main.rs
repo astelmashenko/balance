@@ -205,7 +205,7 @@ fn TIM4() {
         let raw_count = unsafe { (*pac::TIM1::ptr()).cnt.read().cnt().bits() };
         let delta = raw_count.wrapping_sub(LAST_ENC.load(Ordering::Relaxed)) as i16;
         LAST_ENC.store(raw_count, Ordering::Relaxed);
-        let encoder = -delta;
+        let encoder = delta;
 
         // Read raw sensor data
         // get_acc() returns g-scaled values, get_gyro() returns deg/s-scaled values
