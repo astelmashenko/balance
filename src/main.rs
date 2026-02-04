@@ -223,14 +223,14 @@ fn TIM4() {
         let max_duty = pwm.get_max_duty();
 
         // Safety: stop if fallen
-        if (angle - ctrl.balance.center_gravity).abs() > MAX_SAFE_ANGLE {
-            m_stop(brake);
-            pwm.set_duty(max_duty); // inverted PWM: max_duty = 0% power
-            ctrl.reset();
-            led.set_high();
-            timer.clear_interrupt(Event::Update);
-            return;
-        }
+        // if (angle - ctrl.balance.center_gravity).abs() > MAX_SAFE_ANGLE {
+        //     m_stop(brake);
+        //     pwm.set_duty(max_duty); // inverted PWM: max_duty = 0% power
+        //     ctrl.reset();
+        //     led.set_high();
+        //     timer.clear_interrupt(Event::Update);
+        //     return;
+        // }
 
         // Apply motor output (balance + velocity combined)
         apply_motor(pwm, dir, brake, led, total_pwm, max_duty);
@@ -254,6 +254,9 @@ fn TIM3() {
         let gyro = *G_GYRO.borrow(cs).borrow();
         let pwm_out = *G_PWM_OUT.borrow(cs).borrow();
         let encoder = *G_ENCODER.borrow(cs).borrow();
+
+        let mut pwm_ref = G_PWM_CH.borrow(cs).borrow_mut();
+        let pwm = pwm_ref.deref_mut().as_mut().unwrap();
 
         let mut line = String::<16>::new();
 
@@ -281,10 +284,17 @@ fn TIM3() {
         d.write_str(&line).unwrap();
 
         // // Row 4: State
-        // line.clear();
-        // write!(&mut line, "State: 0").unwrap();
-        // d.set_position(0, 4).unwrap();
-        // d.write_str(&line).unwrap();
+        line.clear();
+        // let scaled = pwm_out * (pwm.get_max_duty() as f32) / 7200.0;
+        write!(
+            &mut line,
+            "SPWM: {:3.0}/{:.0}",
+            pwm.get_duty(),
+            pwm.get_max_duty()
+        )
+        .unwrap();
+        d.set_position(0, 4).unwrap();
+        d.write_str(&line).unwrap();
 
         // Row 5: Cen_G (center gravity)
         let ctrl_ref = G_CTRL.borrow(cs).borrow();
@@ -342,12 +352,11 @@ fn apply_motor(
     }
 
     // PWM duty: map |output| to duty cycle
-    // Original uses inverted: PWM = max - |value|
+    // PWM Mode 1 (HAL default): higher CCR = more duty = more power
     let duty = clamped.abs() as u16;
-    let inverted_duty = max_duty.saturating_sub(duty);
 
     m_start(brake);
-    pwm.set_duty(inverted_duty);
+    pwm.set_duty(duty);
 }
 
 pub fn m_start(p_break: &mut BreakPin) {

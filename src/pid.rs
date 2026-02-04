@@ -22,7 +22,7 @@ impl AngleFilter {
     /// Update filter with new sensor readings
     /// Original: Angle = 0.1 * accel_angle + 0.9 * (prev_angle + gyro_rate * 0.003)
     pub fn update(&mut self, accel_angle: f32, gyro_rate: f32) -> f32 {
-        self.angle = 0.1 * accel_angle + 0.9 * (self.angle + gyro_rate * 0.003);
+        self.angle = 0.05 * accel_angle + 0.95 * (self.angle + gyro_rate * 0.003);
         self.angle
     }
 }
@@ -65,9 +65,9 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: -1400.0,
-            ki: 0.05, // 0.0
-            kd: -8.5, // 4.0
+            kp: 50.0,
+            ki: 0.0, // 0.0
+            kd: 0.0, // 4.0
             center_gravity,
             integral: 0.0,
             integral_limit: 30000.0,
@@ -189,9 +189,9 @@ impl Controller {
 
         // Velocity PI controller
         let velocity_pwm = self.velocity.compute(encoder as f32);
-        let total_pwm = balance_pwm + velocity_pwm;
+        // let total_pwm = balance_pwm + velocity_pwm;
         // let total_pwm = velocity_pwm;
-        // let total_pwm = balance_pwm;
+        let total_pwm = balance_pwm;
 
         (angle, total_pwm)
     }
