@@ -65,8 +65,8 @@ impl BalancePD {
     /// Create with original default gains
     pub fn new(center_gravity: f32) -> Self {
         Self {
-            kp: 600.0,
-            ki: 0.0, // 0.0
+            kp: 700.0,
+            ki: 0.1, // 0.0
             kd: 1.5, // 4.0
             center_gravity,
             integral: 0.0,
@@ -110,8 +110,8 @@ pub struct VelocityPI {
 impl VelocityPI {
     pub fn new() -> Self {
         Self {
-            kp: 15.0,  //-600
-            ki: 0.075, // -0.5
+            kp: 17.0, //-600
+            ki: 0.1,  // -0.5
             filtered_encoder: 0.0,
             integral: 0.0,
             integral_limit: 10000.0,
